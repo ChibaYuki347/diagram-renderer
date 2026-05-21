@@ -1,0 +1,40 @@
+{
+  "$comment": "Mermaid theme overrides for Microsoft brand (light mode). Derived from microsoft-brand-guidelines/tokens/light.json. Pure White (#FFFFFF) background, Microsoft Blue (#0078D4) primary.",
+  "theme": "base",
+  "themeVariables": {
+    "fontFamily": "Yu Gothic UI, Segoe UI, Helvetica, Arial, sans-serif",
+    "fontSize": "15px",
+
+    "background": "#FFFFFF",
+    "primaryColor": "#E5F1FB",
+    "primaryTextColor": "#091F2E",
+    "primaryBorderColor": "#0078D4",
+
+    "secondaryColor": "#F3E7F4",
+    "secondaryTextColor": "#091F2E",
+    "secondaryBorderColor": "#702573",
+
+    "tertiaryColor": "#FFE6DF",
+    "tertiaryTextColor": "#091F2E",
+    "tertiaryBorderColor": "#FE5B38",
+
+    "lineColor": "#505050",
+    "textColor": "#091F2E",
+    "mainBkg": "#E5F1FB",
+    "nodeBorder": "#0078D4",
+    "clusterBkg": "#F5F5F5",
+    "clusterBorder": "#E1E1E1",
+    "edgeLabelBackground": "#FFFFFF",
+    "labelTextColor": "#091F2E",
+
+    "noteBkgColor": "#FFFBE6",
+    "noteTextColor": "#091F2E",
+    "noteBorderColor": "#FFB901",
+
+    "activationBkgColor": "#E5F1FB",
+    "activationBorderColor": "#0078D4",
+
+    "errorBkgColor": "#FDECEA",
+    "errorTextColor": "#E81123"
+  }
+}

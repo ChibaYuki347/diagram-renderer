@@ -1,0 +1,3 @@
+{
+  "_comment": "Hand-curated URL → local relative path overrides. Used when the rule-based resolver can't infer the right mapping. Keys are full URLs (after normalization), values are paths relative to the asset root."
+}

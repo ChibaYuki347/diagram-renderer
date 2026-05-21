@@ -1,0 +1,16 @@
+node_modules/
+package-lock.json
+*.log
+
+# Microsoft / GitHub icon pack mirrors — each user runs scripts/fetch-icons.sh
+# under explicit READ_AND_AGREE=1 consent to acquire these. Never redistributed
+# through this repo. CI verifies this directory is absent at repo root.
+**/.local-assets/
+
+# Build / render caches
+**/.diagram-cache/
+
+# Editor / OS noise
+.DS_Store
+.vscode/
+.idea/

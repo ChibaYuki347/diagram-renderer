@@ -1,0 +1,41 @@
+{
+  "$comment": "Mermaid theme overrides for Microsoft brand (dark mode). Derived from microsoft-brand-guidelines/tokens/dark.json. Blue Black (#091F2E) background, Light Blue (#8CC7E7) primary.",
+  "theme": "base",
+  "themeVariables": {
+    "fontFamily": "Yu Gothic UI, Segoe UI, Helvetica, Arial, sans-serif",
+    "fontSize": "15px",
+    "darkMode": true,
+
+    "background": "#091F2E",
+    "primaryColor": "#1B3A5B",
+    "primaryTextColor": "#FFF8F3",
+    "primaryBorderColor": "#8CC7E7",
+
+    "secondaryColor": "#3A2D4F",
+    "secondaryTextColor": "#FFF8F3",
+    "secondaryBorderColor": "#C3B1E1",
+
+    "tertiaryColor": "#2A3F50",
+    "tertiaryTextColor": "#FFF8F3",
+    "tertiaryBorderColor": "#B9DBD0",
+
+    "lineColor": "#B1B3B3",
+    "textColor": "#FFF8F3",
+    "mainBkg": "#1B3A5B",
+    "nodeBorder": "#8CC7E7",
+    "clusterBkg": "#0F2C42",
+    "clusterBorder": "#2A446F",
+    "edgeLabelBackground": "#091F2E",
+    "labelTextColor": "#FFF8F3",
+
+    "noteBkgColor": "#3A3120",
+    "noteTextColor": "#FFF8F3",
+    "noteBorderColor": "#FFB901",
+
+    "activationBkgColor": "#1B3A5B",
+    "activationBorderColor": "#8CC7E7",
+
+    "errorBkgColor": "#4A1B1F",
+    "errorTextColor": "#FF8A8A"
+  }
+}

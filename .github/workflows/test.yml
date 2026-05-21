@@ -1,0 +1,60 @@
+name: test
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Validate .plugin/plugin.json
+        run: node -e "JSON.parse(require('fs').readFileSync('.plugin/plugin.json'))"
+
+      - name: Validate .claude-plugin/plugin.json
+        run: node -e "JSON.parse(require('fs').readFileSync('.claude-plugin/plugin.json'))"
+
+      - name: Verify plugin versions match
+        run: |
+          v1=$(jq -r .version .plugin/plugin.json)
+          v2=$(jq -r .version .claude-plugin/plugin.json)
+          if [ "$v1" != "$v2" ]; then
+            echo "::error::.plugin/plugin.json ($v1) and .claude-plugin/plugin.json ($v2) versions diverge"
+            exit 1
+          fi
+          echo "Both manifests at v$v1"
+
+      - name: Verify no local-assets in repo
+        run: |
+          if find . -type d -name '.local-assets' -not -path './node_modules/*' | grep -q .; then
+            echo "::error::Found .local-assets/ in repo — these are personal caches of Microsoft icon packs and must not be committed (licensing). Fix the .gitignore and remove."
+            exit 1
+          fi
+          echo "OK — no .local-assets/ in repo"
+
+      - name: Verify no diagram-cache in repo
+        run: |
+          if find . -type d -name '.diagram-cache' -not -path './node_modules/*' | grep -q .; then
+            echo "::error::Found .diagram-cache/ in repo — these are build artifacts and must not be committed"
+            exit 1
+          fi
+          echo "OK — no .diagram-cache/ in repo"
+
+      - name: Verify resolver rules are valid JSON
+        run: node -e "JSON.parse(require('fs').readFileSync('skills/diagram-renderer/assets/icons/resolver-rules.json'))"
+
+      - name: Verify aliases are valid JSON
+        run: node -e "JSON.parse(require('fs').readFileSync('skills/diagram-renderer/assets/icons/aliases.json'))"
+
+      - name: Install and run unit tests
+        run: |
+          cd skills/diagram-renderer
+          npm install
+          npm test

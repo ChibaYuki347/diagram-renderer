@@ -1,0 +1,53 @@
+name: release
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.plugin/plugin.json'
+      - '.claude-plugin/plugin.json'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read version
+        id: version
+        run: |
+          v=$(jq -r .version .plugin/plugin.json)
+          echo "v=$v" >> "$GITHUB_OUTPUT"
+          echo "Release target: v$v"
+
+      - name: Check whether tag already exists
+        id: check
+        run: |
+          if git rev-parse "v${{ steps.version.outputs.v }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Tag v${{ steps.version.outputs.v }} already exists — skipping release"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create tag
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git tag -a "v${{ steps.version.outputs.v }}" -m "Release v${{ steps.version.outputs.v }}"
+          git push origin "v${{ steps.version.outputs.v }}"
+
+      - name: Create GitHub Release
+        if: steps.check.outputs.exists == 'false'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.v }}
+          name: v${{ steps.version.outputs.v }}
+          body_path: CHANGELOG.md
+          draft: false
+          prerelease: false
