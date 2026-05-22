@@ -1,6 +1,6 @@
 {
   "name": "diagram-renderer",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Offline-first Mermaid + draw.io renderer for slide decks. Resolves Azure / Entra / Power Platform / GitHub Octicon icons from local mirror with strict offline guarantee. Pairs with microsoft-brand-guidelines for Microsoft-branded output.",
   "author": {
     "name": "ChibaYuki347",
@@ -20,5 +20,22 @@
     "pptx",
     "offline"
   ],
-  "skills": "./skills/"
+  "skills": "./skills/",
+  "agents": [
+    "./agents"
+  ],
+  "provides": {
+    "diagram.render.mermaid": {
+      "version": "1.0",
+      "command": "skills/diagram-renderer/bin/render-mermaid.js"
+    },
+    "diagram.render.drawio": {
+      "version": "1.0",
+      "command": "skills/diagram-renderer/bin/render-drawio.js"
+    },
+    "diagram.extract.mermaidMd": {
+      "version": "1.0",
+      "command": "skills/diagram-renderer/bin/extract-md-mermaid.js"
+    }
+  }
 }
