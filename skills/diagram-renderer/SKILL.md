@@ -7,6 +7,28 @@ description: Render Mermaid (and later draw.io) diagrams to PNG/SVG so other Ski
 
 **Scope**: convert diagram source → static raster/vector image. This skill **does not** generate slides or documents itself — it produces PNG/SVG that other skills (e.g. Anthropic `pptx`, `docx`, `microsoft-brand-guidelines` PPT layouts) embed.
 
+## 🧭 New session? Start here (30 seconds)
+
+This skill ships as one of two plugins in the
+[`chibayuki-private-marketplace`](https://github.com/ChibaYuki347/chibayuki-private-marketplace)
+private catalog (paired with `microsoft-brand-guidelines`). Before composing
+deck-with-diagram workflows, confirm the install is wired correctly:
+
+```bash
+bash ~/dev/chibayuki-private-marketplace/bootstrap.sh --health
+```
+
+If you see `✅ All checks passed`, the brand bridge will auto-discover this
+renderer at build time (no env vars needed). For canonical paths,
+capability-discovery flow, the 4 custom agents, end-to-end workflow, and
+troubleshooting matrix, read
+**[`chibayuki-private-marketplace/INTEGRATION.md`](https://github.com/ChibaYuki347/chibayuki-private-marketplace/blob/main/INTEGRATION.md)**.
+
+For drawio Microsoft / Entra / Azure icon resolution, see
+[`docs/icons-in-drawio.md`](docs/icons-in-drawio.md) and run
+`bash scripts/fetch-icons.sh github|azure|entra|power-platform` to populate the
+local mirror at `~/.copilot/skills/diagram-renderer/.local-assets/`.
+
 ## Capabilities
 
 | Phase | Source | Status |
