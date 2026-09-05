@@ -39,6 +39,7 @@ local mirror at `~/.copilot/skills/diagram-renderer/.local-assets/`.
 | 3 | draw.io editable SVG (`.drawio.svg` / `.svg`) → PNG | ✅ |
 | 3 | draw.io raw XML (`.drawio`) → PNG | ❌ Not supported (export as Editable SVG first) |
 | 4 | draw.io with Microsoft / GitHub product icons — offline inline of external `<image>` refs | ✅ ([details](docs/icons-in-drawio.md)) |
+| 5 | **Authoring** icon-rich architecture diagrams (Mermaid `architecture-beta` with local icon packs; `arch.yaml` → auto-layout → SVG) | 📐 Proposed ([design](docs/architecture-rendering-design.md)) |
 
 ### Phase 4: offline icon inlining for draw.io
 

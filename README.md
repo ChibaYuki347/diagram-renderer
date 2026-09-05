@@ -28,6 +28,7 @@ resolution can call it directly.
 | Inline external `<image>` refs in draw.io SVG from local mirror | `lib/inline-external-images.js` |
 | Acquire icon packs (Octicons + 4 Microsoft sets) | `scripts/fetch-icons.sh` |
 | **`diagram-author` custom agent** (bundled in v0.2.0) | `agents/diagram-author.agent.md` |
+| **Icon-rich architecture authoring** (proposed) | [`docs/architecture-rendering-design.md`](skills/diagram-renderer/docs/architecture-rendering-design.md) |
 
 5 icon resolver rules ship out of the box:
 
