@@ -25,11 +25,12 @@ jobs:
         run: |
           v1=$(jq -r .version .plugin/plugin.json)
           v2=$(jq -r .version .claude-plugin/plugin.json)
-          if [ "$v1" != "$v2" ]; then
-            echo "::error::.plugin/plugin.json ($v1) and .claude-plugin/plugin.json ($v2) versions diverge"
+          v3=$(jq -r .version skills/diagram-renderer/package.json)
+          if [ "$v1" != "$v2" ] || [ "$v1" != "$v3" ]; then
+            echo "::error::version drift — .plugin ($v1), .claude-plugin ($v2), package.json ($v3) must match"
             exit 1
           fi
-          echo "Both manifests at v$v1"
+          echo "All three manifests at v$v1"
 
       - name: Verify no local-assets in repo
         run: |
