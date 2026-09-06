@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # fetch-icons.sh — license-safe icon acquisition for diagram-renderer
 #
-# Populates ~/.copilot/skills/diagram-renderer/.local-assets/ with icon SVGs
-# that the renderer can use to inline external <image href="..."> references
-# in drawio SVG exports (when "Embed Images" is OFF).
+# Populates <skill>/.local-assets/ (i.e. the directory next to this script's
+# parent — wherever the skill happens to be installed) with icon SVGs that the
+# renderer can use to inline external <image href="..."> references in drawio
+# SVG exports (when "Embed Images" is OFF). The renderer auto-discovers this
+# same path, so no configuration is needed.
 #
 # Behavior:
 #   * GitHub Octicons: auto-downloaded via `npm install --no-save @primer/octicons` (MIT).

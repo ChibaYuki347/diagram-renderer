@@ -28,25 +28,95 @@ const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 
 const SKILL_ROOT = path.resolve(__dirname, '..');
-const MMDC_BIN = path.join(SKILL_ROOT, 'node_modules', '.bin', 'mmdc');
 const THEMES_DIR = path.join(SKILL_ROOT, 'themes');
 
+// Resolve how to invoke mermaid-cli.
+//
+// We deliberately run mermaid-cli's JS entry point with the *current* node
+// binary rather than the `node_modules/.bin/mmdc` shim: on Windows that shim is
+// an extensionless shell script that cannot be spawned directly (npm writes a
+// separate `mmdc.cmd` for that), and spawning `.cmd` requires `shell: true`,
+// which is unsafe with the user-supplied paths we pass through.
+function resolveMmdc() {
+  try {
+    const pkgPath = require.resolve('@mermaid-js/mermaid-cli/package.json', { paths: [SKILL_ROOT] });
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+    const rel = typeof pkg.bin === 'string' ? pkg.bin : pkg.bin && pkg.bin.mmdc;
+    if (rel) {
+      const entry = path.resolve(path.dirname(pkgPath), rel);
+      if (fs.existsSync(entry)) return entry;
+    }
+  } catch (_) {}
+  return null;
+}
+
 // Try to locate an already-installed Chromium so mmdc doesn't download a fresh one.
+// Covers the Playwright browser cache and common system installs on Linux,
+// macOS and Windows. Returns null when nothing is found, in which case
+// puppeteer falls back to its own bundled download.
 function findChromium() {
   const env = process.env.PUPPETEER_EXECUTABLE_PATH || process.env.CHROME_PATH;
   if (env && fs.existsSync(env)) return env;
 
+  const home = os.homedir();
+  const platform = process.platform;
+
+  // Playwright keeps its browsers in a platform-specific cache directory.
+  const pwCaches =
+    platform === 'win32'
+      ? [path.join(process.env.LOCALAPPDATA || path.join(home, 'AppData', 'Local'), 'ms-playwright')]
+      : platform === 'darwin'
+        ? [path.join(home, 'Library', 'Caches', 'ms-playwright'), path.join(home, '.cache', 'ms-playwright')]
+        : [path.join(home, '.cache', 'ms-playwright')];
+
+  // Relative path from a `chromium-<rev>` dir to the executable.
+  const pwExecutables =
+    platform === 'win32'
+      ? [['chrome-win', 'chrome.exe'], ['chrome-win64', 'chrome.exe']]
+      : platform === 'darwin'
+        ? [
+            ['chrome-mac', 'Chromium.app', 'Contents', 'MacOS', 'Chromium'],
+            ['chrome-mac-arm64', 'Chromium.app', 'Contents', 'MacOS', 'Chromium'],
+          ]
+        : [['chrome-linux64', 'chrome'], ['chrome-linux', 'chrome']];
+
   const candidates = [];
-  const pwCache = path.join(os.homedir(), '.cache', 'ms-playwright');
-  if (fs.existsSync(pwCache)) {
+  for (const pwCache of pwCaches) {
+    if (!fs.existsSync(pwCache)) continue;
     for (const name of fs.readdirSync(pwCache)) {
-      if (name.startsWith('chromium-')) {
-        candidates.push(path.join(pwCache, name, 'chrome-linux64', 'chrome'));
-        candidates.push(path.join(pwCache, name, 'chrome-linux', 'chrome'));
-      }
+      if (!name.startsWith('chromium')) continue;
+      for (const parts of pwExecutables) candidates.push(path.join(pwCache, name, ...parts));
     }
   }
-  candidates.push('/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser');
+
+  if (platform === 'win32') {
+    const programFiles = [
+      process.env.PROGRAMFILES,
+      process.env['PROGRAMFILES(X86)'],
+      path.join(home, 'AppData', 'Local'),
+      process.env.LOCALAPPDATA,
+    ].filter(Boolean);
+    for (const base of programFiles) {
+      candidates.push(path.join(base, 'Google', 'Chrome', 'Application', 'chrome.exe'));
+      candidates.push(path.join(base, 'Microsoft', 'Edge', 'Application', 'msedge.exe'));
+      candidates.push(path.join(base, 'Chromium', 'Application', 'chrome.exe'));
+    }
+  } else if (platform === 'darwin') {
+    candidates.push(
+      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+      '/Applications/Chromium.app/Contents/MacOS/Chromium',
+      '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge'
+    );
+  } else {
+    candidates.push(
+      '/usr/bin/google-chrome',
+      '/usr/bin/google-chrome-stable',
+      '/usr/bin/chromium',
+      '/usr/bin/chromium-browser',
+      '/snap/bin/chromium'
+    );
+  }
+
   for (const p of candidates) {
     if (fs.existsSync(p)) return p;
   }
@@ -86,8 +156,9 @@ async function renderMermaid(opts = {}) {
 
   if (!out) throw new Error('renderMermaid: `out` is required');
   if (!code && !file) throw new Error('renderMermaid: `code` or `file` is required');
-  if (!fs.existsSync(MMDC_BIN)) {
-    throw new Error(`mmdc not found at ${MMDC_BIN}. Run \`npm install\` in ${SKILL_ROOT}.`);
+  const mmdcEntry = resolveMmdc();
+  if (!mmdcEntry) {
+    throw new Error(`mermaid-cli (mmdc) not found. Run \`npm install\` in ${SKILL_ROOT}.`);
   }
 
   const outAbs = path.resolve(out);
@@ -130,7 +201,7 @@ async function renderMermaid(opts = {}) {
   if (background) args.push('-b', background);
   else if (fmt === 'png') args.push('-b', 'transparent'); // theme JSON sets background internally
 
-  const proc = spawnSync(MMDC_BIN, args, { encoding: 'utf8' });
+  const proc = spawnSync(process.execPath, [mmdcEntry, ...args], { encoding: 'utf8' });
   // Clean temp eagerly except for debugging
   try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (_) {}
 
@@ -180,4 +251,4 @@ function cacheKey({ code, file, theme = 'microsoft-light', scale = 2, cssWidth =
   return h.digest('hex');
 }
 
-module.exports = { renderMermaid, cacheKey, findChromium };
+module.exports = { renderMermaid, cacheKey, findChromium, resolveMmdc };

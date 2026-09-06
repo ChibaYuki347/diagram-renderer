@@ -1,7 +1,7 @@
 {
   "name": "diagram-renderer",
-  "version": "0.2.0",
-  "description": "Offline-first Mermaid + draw.io renderer for slide decks. Resolves Azure / Entra / Power Platform / GitHub Octicon icons from local mirror with strict offline guarantee. Pairs with microsoft-brand-guidelines for Microsoft-branded output.",
+  "version": "0.3.0",
+  "description": "Offline-first Mermaid + draw.io renderer for diagrams and slide decks. Resolves Azure / Entra / Power Platform / GitHub Octicon icons from a local mirror with a strict offline guarantee, and ships an icon-search CLI so agents never guess icon URLs.",
   "author": {
     "name": "ChibaYuki347",
     "url": "https://github.com/ChibaYuki347"

@@ -2,14 +2,16 @@
   {
     "name": "drawio-mscae",
     "match": { "pathSuffix": "/img/lib/mscae/" },
-    "localBase": "m365/",
+    "localBase": "azure/",
+    "searchRecursive": true,
     "scope": ["m365", "azure-legacy"],
-    "_description": "drawio's 'Microsoft Cloud and Enterprise' library — mixed Office 365, Intune, OMS, System Center, legacy Azure flat icons. Maps to local m365/ (the mscae library is closest to current M365 product icons)."
+    "_description": "drawio's 'Microsoft Cloud and Enterprise' library — mixed Office 365, Intune, OMS, System Center, legacy Azure flat icons. Microsoft folded the standalone M365 stencil pack into the Azure pack, so this maps to the local azure/ mirror. mscae URLs are FLAT (/img/lib/mscae/Office_365.svg) while azure/ is category-nested, hence `searchRecursive`: match by basename anywhere under azure/. Intentionally has no `canonicalUrl` — this is an inbound-compatibility alias, and the canonical outbound URL for azure/ is the azure2 one below."
   },
   {
     "name": "drawio-azure2",
     "match": { "pathSuffix": "/img/lib/azure2/" },
     "localBase": "azure/",
+    "canonicalUrl": "https://app.diagrams.net/img/lib/azure2/",
     "scope": ["azure", "power-platform", "entra"],
     "_description": "drawio's modern Azure architecture icons, organized by category (compute/, networking/, identity/, storage/, power_platform/, etc.). Maps to local azure/."
   },
@@ -17,6 +19,7 @@
     "name": "drawio-active-directory",
     "match": { "pathSuffix": "/img/lib/active_directory/" },
     "localBase": "entra/active_directory/",
+    "canonicalUrl": "https://app.diagrams.net/img/lib/active_directory/",
     "scope": ["entra"],
     "_description": "drawio's legacy Active Directory icons — servers, clusters, domains. Useful for hybrid/legacy Entra diagrams."
   },
@@ -24,6 +27,7 @@
     "name": "drawio-dynamics365",
     "match": { "pathSuffix": "/img/lib/dynamics365/" },
     "localBase": "dynamics365/",
+    "canonicalUrl": "https://app.diagrams.net/img/lib/dynamics365/",
     "scope": ["dynamics"],
     "_description": "drawio's Dynamics 365 product icons. Out of the documented Phase 4 scope but supported if user populates the mirror."
   },
@@ -31,6 +35,7 @@
     "name": "github-octicons-jsdelivr",
     "match": { "pathSuffix": "/build/svg/" },
     "localBase": "github/octicons/",
+    "canonicalUrl": "https://cdn.jsdelivr.net/npm/@primer/octicons@latest/build/svg/",
     "scope": ["github"],
     "_description": "GitHub Octicons via jsDelivr (e.g. https://cdn.jsdelivr.net/npm/@primer/octicons@latest/build/svg/star-16.svg). MIT licensed. pathSuffix is intentionally broad — covers @primer/octicons@*/build/svg/ across versions."
   },
@@ -38,6 +43,7 @@
     "name": "ms-entra-pack-convention",
     "match": { "urlPrefix": "https://aka.ms/entra-icons/" },
     "localBase": "entra/",
+    "canonicalUrl": "https://aka.ms/entra-icons/",
     "scope": ["entra"],
     "_description": "Convention URL for the official Microsoft Entra architecture icons pack (Oct 2023). Use https://aka.ms/entra-icons/color/ID.svg or .../bw/ID_Governance.svg in drawio SVGs — this is NOT a real network endpoint, just a stable identifier that the resolver maps to .local-assets/entra/<flavor>/<name>.svg. Populate via scripts/fetch-icons.sh entra."
   },
@@ -45,6 +51,7 @@
     "name": "ms-power-platform-pack-convention",
     "match": { "urlPrefix": "https://aka.ms/power-platform-icons/" },
     "localBase": "power-platform/",
+    "canonicalUrl": "https://aka.ms/power-platform-icons/",
     "scope": ["power-platform"],
     "_description": "Convention URL for the official Microsoft Power Platform icons pack (Feb 2026). Use https://aka.ms/power-platform-icons/PowerApps.svg etc. — NOT a real network endpoint, just a stable identifier that the resolver maps locally. Populate via scripts/fetch-icons.sh power-platform."
   }
