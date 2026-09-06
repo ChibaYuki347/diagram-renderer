@@ -1,0 +1,25 @@
+%% Sample Mermaid source used by the end-to-end render smoke test.
+%% Exercises subgraphs, node shapes, edge labels and styling so a broken
+%% mermaid-cli / Chromium pairing fails CI instead of failing at author time.
+flowchart LR
+    Author([Author]) -->|writes| Src[/"diagram source"/]
+
+    subgraph Renderer["diagram-renderer"]
+        direction TB
+        Resolve["resolve icon URLs<br/>from local mirror"]
+        Inline["inline as data: URIs"]
+        Shot["headless screenshot"]
+        Resolve --> Inline --> Shot
+    end
+
+    Src --> Resolve
+    Shot --> PNG[("PNG at natural<br/>resolution")]
+    PNG --> Deck[Deck or docs]
+
+    Net{{"network"}}
+    Resolve -. blocked .-x Net
+
+    classDef offline fill:#f6f8fa,stroke:#d0d7de,color:#1f2328
+    classDef blocked fill:#fff8f5,stroke:#d1242f,color:#d1242f
+    class Resolve,Inline,Shot offline
+    class Net blocked

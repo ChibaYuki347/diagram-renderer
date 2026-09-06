@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Sample draw.io-style editable SVG used by the end-to-end render smoke test.
+
+  Every xlink:href below is a real jsDelivr Octicon URL. The renderer never
+  fetches them: the `github-octicons-jsdelivr` resolver rule maps the
+  `/build/svg/` path suffix onto the local `github/octicons/` mirror, and the
+  inline pass rewrites each <image> to a data: URI before Chromium ever sees
+  the document. With strict offline on (the default) an unresolved URL is a
+  hard failure, so a green e2e run proves icon resolution actually worked.
+
+  Octicons are MIT licensed, so CI can fetch them automatically. Only this
+  set is used here — the Microsoft packs are never redistributed.
+-->
+<svg xmlns="http://www.w3.org/2000/svg"
+     xmlns:xlink="http://www.w3.org/1999/xlink"
+     width="1060" height="240" viewBox="0 0 1060 240">
+
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#57606a"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1060" height="240" fill="#ffffff"/>
+
+  <text x="40" y="34" font-family="Segoe UI, Helvetica, Arial, sans-serif"
+        font-size="18" font-weight="600" fill="#1f2328">Build and release pipeline</text>
+
+  <!-- Source -->
+  <rect x="40" y="60" width="140" height="110" rx="8" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1.5"/>
+  <image x="94" y="80" width="32" height="32"
+         xlink:href="https://cdn.jsdelivr.net/npm/@primer/octicons@latest/build/svg/repo-24.svg"/>
+  <text x="110" y="138" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif"
+        font-size="13" fill="#1f2328">Source</text>
+  <text x="110" y="156" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif"
+        font-size="11" fill="#57606a">repository</text>
+
+  <!-- CI -->
+  <rect x="250" y="60" width="140" height="110" rx="8" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1.5"/>
+  <image x="304" y="80" width="32" height="32"
+         xlink:href="https://cdn.jsdelivr.net/npm/@primer/octicons@latest/build/svg/workflow-24.svg"/>
+  <text x="320" y="138" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif"
+        font-size="13" fill="#1f2328">CI</text>
+  <text x="320" y="156" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif"
+        font-size="11" fill="#57606a">unit + e2e tests</text>
+
+  <!-- Artifact -->
+  <rect x="460" y="60" width="140" height="110" rx="8" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1.5"/>
+  <image x="514" y="80" width="32" height="32"
+         xlink:href="https://cdn.jsdelivr.net/npm/@primer/octicons@latest/build/svg/package-24.svg"/>
+  <text x="530" y="138" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif"
+        font-size="13" fill="#1f2328">Artifact</text>
+  <text x="530" y="156" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif"
+        font-size="11" fill="#57606a">versioned bundle</text>
+
+  <!-- Gate -->
+  <rect x="670" y="60" width="140" height="110" rx="8" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1.5"/>
+  <image x="724" y="80" width="32" height="32"
+         xlink:href="https://cdn.jsdelivr.net/npm/@primer/octicons@latest/build/svg/shield-check-24.svg"/>
+  <text x="740" y="138" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif"
+        font-size="13" fill="#1f2328">Gate</text>
+  <text x="740" y="156" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif"
+        font-size="11" fill="#57606a">version + license</text>
+
+  <!-- Release -->
+  <rect x="880" y="60" width="140" height="110" rx="8" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1.5"/>
+  <image x="934" y="80" width="32" height="32"
+         xlink:href="https://cdn.jsdelivr.net/npm/@primer/octicons@latest/build/svg/rocket-24.svg"/>
+  <text x="950" y="138" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif"
+        font-size="13" fill="#1f2328">Release</text>
+  <text x="950" y="156" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif"
+        font-size="11" fill="#57606a">tagged publish</text>
+
+  <!-- Flow -->
+  <line x1="180" y1="115" x2="248" y2="115" stroke="#57606a" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="390" y1="115" x2="458" y2="115" stroke="#57606a" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="600" y1="115" x2="668" y2="115" stroke="#57606a" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="810" y1="115" x2="878" y2="115" stroke="#57606a" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <text x="40" y="212" font-family="Segoe UI, Helvetica, Arial, sans-serif"
+        font-size="11" fill="#57606a">Icons: GitHub Octicons (MIT), resolved offline from the local mirror.</text>
+</svg>

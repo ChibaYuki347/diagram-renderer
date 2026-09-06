@@ -291,10 +291,64 @@ for full author guide (drawio library import, naming conventions, troubleshootin
 ```bash
 cd skills/diagram-renderer
 npm install
-npm test
+npm test          # unit tests, no browser required
 ```
 
 Tests cover the draw.io SVG inline pass (21 cases: DOM parsing, `href` vs
-`xlink:href`, path traversal, recursive basename fallback, base64 size budgets)
-and the icon index (29 cases: variant grouping, scoring, URL round-tripping,
-CLI exit codes).
+`xlink:href`, path traversal, recursive basename fallback, base64 size budgets),
+the icon index (29 cases: variant grouping, scoring, URL round-tripping, CLI
+exit codes) and input-kind detection (15 cases: XML prologue handling, editable
+SVG vs raw draw.io XML vs unrenderable input) — 65 in total.
+
+### End-to-end smoke test
+
+Unit tests never launch a browser, so they cannot tell you whether the renderer
+actually works on your platform. The end-to-end test does — it renders the
+committed samples for real:
+
+```bash
+READ_AND_AGREE=1 bash scripts/fetch-icons.sh github   # one-time: mirror the Octicons
+npm run test:e2e
+```
+
+It asserts that `mmdc` and Chromium launch, that every icon reference in
+`test/sample-architecture.drawio.svg` inlines from the local mirror, that
+Chromium makes **zero** network requests, and that an un-mirrored icon fails the
+render rather than being fetched. Set `E2E_OUT_DIR=<dir>` to keep the rendered
+PNGs instead of discarding them.
+
+The same test runs as the `e2e` job in CI, which uploads the PNGs as the
+`rendered-samples` artifact so you can look at what a given commit produced.
+Only Octicons are exercised there: they are MIT and can be fetched
+non-interactively, whereas the Microsoft packs require a manual download.
+
+### Continuous integration
+
+`.github/workflows/test.yml` defines two jobs, both on `push` to `main` and on
+every pull request:
+
+| Job | What it guards | Runtime |
+| --- | --- | --- |
+| `test` | Manifests are valid JSON and all three versions agree; no `.local-assets/` or `.diagram-cache/` was committed; resolver rules and aliases parse; unit tests pass. | ~40 s |
+| `e2e` | The renderer actually runs: dependencies install, the Octicon mirror populates, and the committed samples render to real PNGs with zero network access. Uploads the PNGs as an artifact. | a few minutes |
+
+To inspect a run:
+
+```bash
+gh run list --workflow test.yml --limit 5
+gh run view <run-id> --log-failed
+gh run download <run-id> -n rendered-samples   # the actual rendered PNGs
+```
+
+**Editing the workflow file requires a token with the `workflow` scope.**
+Pushing a commit that touches `.github/workflows/**` with a token that lacks it
+is rejected with *"refusing to allow an OAuth App to create or update
+workflow ... without `workflow` scope"*. Check with `gh auth status`; if the
+active token is missing it, re-authenticate:
+
+```bash
+gh auth refresh -h github.com -s workflow
+```
+
+Everything outside `.github/workflows/` pushes normally, so a workflow change
+can always be split into its own commit if only that one is blocked.

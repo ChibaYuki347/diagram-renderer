@@ -10,6 +10,10 @@ package-lock.json
 # Build / render caches
 **/.diagram-cache/
 
+# Rendered output from the end-to-end smoke test (npm run test:e2e)
+e2e-out/
+**/.e2e-out/
+
 # Editor / OS noise
 .DS_Store
 .vscode/
