@@ -47,7 +47,7 @@ Options:
   --background CSS        Background color (default: transparent)
 
 Icon inlining (Phase 4):
-  --asset-root DIR        Root of local icon mirror (e.g. ~/.copilot/skills/diagram-renderer/.local-assets)
+  --asset-root DIR        Root of local icon mirror (default: <skill>/.local-assets)
   --rules FILE            JSON file with resolver rules (default: <skill>/assets/icons/resolver-rules.json if present)
   --aliases FILE          JSON file with URL→localPath alias map (optional)
   --no-inline-images      Skip the inline-external-images preflight (NOT recommended)

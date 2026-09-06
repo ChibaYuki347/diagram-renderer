@@ -1,33 +1,43 @@
 ---
 name: diagram-renderer
-description: Render Mermaid (and later draw.io) diagrams to PNG/SVG so other Skills (especially the `pptx` skill + `microsoft-brand-guidelines` tokens) can embed them as static images. Provides a Microsoft-branded mermaid theme (light/dark) and a CLI + Node API. Use when a deck-/doc-generation workflow needs to materialize architecture diagrams, decision trees, or flow charts from markdown / source files.
+description: Render Mermaid and draw.io diagrams to PNG/SVG so other Skills (pptx, docx, or any deck/doc generator) can embed them as static images. Strictly offline by default, with a searchable local catalog of Azure / Entra / Power Platform / GitHub Octicon icons. Ships light/dark themes plus a CLI and Node API. Use when a deck- or doc-generation workflow needs to materialize architecture diagrams, decision trees, or flow charts from markdown / source files.
 ---
 
 # diagram-renderer
 
-**Scope**: convert diagram source → static raster/vector image. This skill **does not** generate slides or documents itself — it produces PNG/SVG that other skills (e.g. Anthropic `pptx`, `docx`, `microsoft-brand-guidelines` PPT layouts) embed.
+**Scope**: convert diagram source → static raster/vector image. This skill **does not** generate slides or documents itself — it produces PNG/SVG that other skills (e.g. `pptx`, `docx`, or any deck builder) embed.
 
 ## 🧭 New session? Start here (30 seconds)
 
-This skill ships as one of two plugins in the
-[`chibayuki-private-marketplace`](https://github.com/ChibaYuki347/chibayuki-private-marketplace)
-private catalog (paired with `microsoft-brand-guidelines`). Before composing
-deck-with-diagram workflows, confirm the install is wired correctly:
+The skill is self-contained: every CLI resolves its own paths relative to the
+skill directory, so there is nothing to configure and no environment variable
+to set.
 
 ```bash
-bash ~/dev/chibayuki-private-marketplace/bootstrap.sh --health
+cd <skill>                 # the directory containing this SKILL.md
+npm install                # mermaid-cli + puppeteer
+npm test                   # should print "N passed, 0 failed"
 ```
 
-If you see `✅ All checks passed`, the brand bridge will auto-discover this
-renderer at build time (no env vars needed). For canonical paths,
-capability-discovery flow, the 4 custom agents, end-to-end workflow, and
-troubleshooting matrix, read
-**[`chibayuki-private-marketplace/INTEGRATION.md`](https://github.com/ChibaYuki347/chibayuki-private-marketplace/blob/main/INTEGRATION.md)**.
+Rendering works immediately for Mermaid and for draw.io SVGs that already embed
+their images. To resolve **product icons** offline, populate the local mirror
+once:
 
-For drawio Microsoft / Entra / Azure icon resolution, see
-[`docs/icons-in-drawio.md`](docs/icons-in-drawio.md) and run
-`bash scripts/fetch-icons.sh github|azure|entra|power-platform` to populate the
-local mirror at `~/.copilot/skills/diagram-renderer/.local-assets/`.
+```bash
+bash scripts/fetch-icons.sh github          # Octicons, MIT, fully automatic
+bash scripts/fetch-icons.sh azure entra power-platform   # Microsoft packs, manual ZIP drop
+```
+
+The mirror lands in `<skill>/.local-assets/` (gitignored, never redistributed)
+and is auto-discovered at render time. Then find the exact icon to reference:
+
+```bash
+node bin/icon-search.js cosmos db
+node bin/icon-search.js --sets            # what is actually installed
+```
+
+See [`docs/icons-in-drawio.md`](docs/icons-in-drawio.md) for the full author
+guide.
 
 ## Capabilities
 
@@ -39,6 +49,7 @@ local mirror at `~/.copilot/skills/diagram-renderer/.local-assets/`.
 | 3 | draw.io editable SVG (`.drawio.svg` / `.svg`) → PNG | ✅ |
 | 3 | draw.io raw XML (`.drawio`) → PNG | ❌ Not supported (export as Editable SVG first) |
 | 4 | draw.io with Microsoft / GitHub product icons — offline inline of external `<image>` refs | ✅ ([details](docs/icons-in-drawio.md)) |
+| 4 | Search the local icon mirror by name → canonical URL (`bin/icon-search.js`) | ✅ |
 | 5 | **Authoring** icon-rich architecture diagrams (Mermaid `architecture-beta` with local icon packs; `arch.yaml` → auto-layout → SVG) | 📐 Proposed ([design](docs/architecture-rendering-design.md)) |
 
 ### Phase 4: offline icon inlining for draw.io
@@ -52,15 +63,40 @@ network is touched at render time** (enforced via Puppeteer request interception
 
 Setup:
 - `scripts/fetch-icons.sh` — populate the local mirror (GitHub Octicons auto via npm MIT; MS icons via interactive license-confirm + manual ZIP drop)
-- `assets/icons/resolver-rules.json` — committed rule definitions (URL pattern → local subtree)
+- `bin/icon-search.js` — search the populated mirror; prints the canonical URL to paste into your SVG, so you never have to guess a filename
+- `assets/icons/resolver-rules.json` — committed rule definitions (URL pattern → local subtree, plus the `canonicalUrl` used to map back)
 - `assets/icons/aliases.json` — committed exact-URL overrides for edge cases
 - `assets/icons/LICENSE.md` — licensing posture per icon set
 
-## Brand themes
+### Finding the right icon
 
-`themes/microsoft-light.json` and `themes/microsoft-dark.json` express the Microsoft brand palette as a mermaid `themeVariables` block — derived from `microsoft-brand-guidelines/tokens/{light,dark}.json` (Pure White / Blue Black bases).
+Guessing an icon filename is the most common way to break an offline render:
+the mistake only surfaces at render time as an unresolved-external error.
+`icon-search` reads the mirror you actually installed, so whatever it prints is
+guaranteed to resolve.
 
-To use a different theme: pass any [mermaid themeVariables](https://mermaid.js.org/config/theming.html) JSON file to `--theme-file`.
+```bash
+node bin/icon-search.js cosmos db
+# azure/databases/azure_cosmos_db  (score 708)
+#   name : Azure Cosmos DB
+#   set  : azure   group: databases
+#   url  : https://app.diagrams.net/img/lib/azure2/databases/Azure_Cosmos_DB.svg
+#   file : <skill>/.local-assets/azure/databases/Azure_Cosmos_DB.svg
+
+node bin/icon-search.js "entra id" --set entra --json   # machine-readable
+node bin/icon-search.js --sets                          # what is installed
+```
+
+Exit code `3` means "no match" — treat it as "this icon is not in the mirror",
+not as a crash.
+
+## Themes
+
+`themes/microsoft-light.json` and `themes/microsoft-dark.json` express a
+Microsoft-flavored palette as a mermaid `themeVariables` block. They are
+bundled examples, not a requirement: pass `--theme default` for stock mermaid
+styling, or any [mermaid themeVariables](https://mermaid.js.org/config/theming.html)
+JSON file to `--theme-file` for your own palette.
 
 ## Usage
 
@@ -81,6 +117,10 @@ extract-md-mermaid docs/architecture.md --out out/diagrams --render \   # ...and
 
 # Render a drawio editable SVG to PNG (Phase 3)
 render-drawio diagrams/arch.drawio.svg --out arch.png --cssWidth 1100
+
+# Find the exact icon name + URL to reference in a drawio SVG (Phase 4)
+icon-search cosmos db
+icon-search "function app" --set azure --json
 ```
 
 The `--out DIR` mode writes `manifest.json` with one entry per block:
@@ -96,7 +136,7 @@ The `--out DIR` mode writes `manifest.json` with one entry per block:
 ### Programmatic (Node)
 
 ```js
-const { renderMermaid } = require('~/.copilot/skills/diagram-renderer/lib/render');
+const { renderMermaid } = require('<skill>/lib/render');
 
 const { path, width, height } = await renderMermaid({
   code: 'graph TD\n  Start --> End',
@@ -110,7 +150,7 @@ const {
   extractMermaidBlocks,
   pickBlock,
   readMarkdownFile,
-} = require('~/.copilot/skills/diagram-renderer/lib/extract');
+} = require('<skill>/lib/extract');
 
 const md = readMarkdownFile('docs/architecture.md');
 const blocks = extractMermaidBlocks(md);
@@ -118,17 +158,30 @@ const block = pickBlock(blocks, { section: 'Pattern B' }); // or { index: 0 }
 // block.code → string ready for renderMermaid()
 
 // Render a drawio editable SVG to PNG (Phase 3)
-const { renderDrawio } = require('~/.copilot/skills/diagram-renderer/lib/render-drawio');
+const { renderDrawio } = require('<skill>/lib/render-drawio');
 const { path: pngPath, width, height } = await renderDrawio({
   file: 'diagrams/arch.drawio.svg',
   out: '/tmp/arch.png',
   cssWidth: 1100,
 });
+
+// Search the local icon mirror (Phase 4)
+const { buildIconIndex, searchIcons } = require('<skill>/lib/icon-index');
+const index = buildIconIndex();                       // defaults to <skill>/.local-assets
+const [best] = searchIcons(index, 'cosmos db');
+// best.url  → https://app.diagrams.net/img/lib/azure2/databases/Azure_Cosmos_DB.svg
+// best.file → absolute path to the SVG on disk
 ```
 
-### Integration with `microsoft-brand-guidelines`
+### Composing with other skills
 
-The brand skill's `deck-from-json.js` runner auto-detects these `content` fields on `layout: "image"` slides and renders them via this skill into `<deckdir>/.diagram-cache/<sha1>.png`:
+This skill is standalone; anything that can run a CLI or `require()` a Node
+module can use it. A deck builder typically calls `renderMermaid` /
+`renderDrawio` and caches the PNG by `cacheKey()`.
+
+As one concrete example, the [`microsoft-brand-guidelines`](https://github.com/ChibaYuki347/microsoft-brand-guidelines)
+deck runner auto-detects these `content` fields on `layout: "image"` slides and
+renders them through this skill into `<deckdir>/.diagram-cache/<sha1>.png`:
 
 - `mermaid` — inline mermaid code as a string
 - `mermaidFile` — path to a `.mmd` file
@@ -137,7 +190,8 @@ The brand skill's `deck-from-json.js` runner auto-detects these `content` fields
 - `drawioFile` — path to a `.drawio.svg` / `.svg` file
 - `leftMermaid*` / `rightMermaid*` / `leftDrawio*` / `rightDrawio*` — same fields prefixed for the `image-2up` variant
 
-See `examples/slide-recipes.md` in that skill for full examples.
+That integration is optional and lives entirely in the calling skill — nothing
+in this repository depends on it.
 
 ## Dependencies
 

@@ -59,6 +59,10 @@ const resolver = createResolver({
   assetRoot: tmpRoot,
 });
 
+// Windows and default macOS volumes are case-insensitive, which changes which
+// code path resolves a differently-cased filename. Probe rather than assume.
+const FS_CASE_INSENSITIVE = fs.existsSync(path.join(tmpRoot, 'AZURE'));
+
 // --- Tests ------------------------------------------------------------------
 
 console.log('inline-external-images.js:');
@@ -148,7 +152,10 @@ test('case-insensitive basename fallback', () => {
   const { resolved, unresolved } = inlineExternalImages({ svg, resolve: resolver });
   assert.strictEqual(unresolved.length, 0);
   assert.strictEqual(resolved.length, 1);
-  assert.match(resolved[0].ruleName, /-ci$/);
+  // On a case-insensitive filesystem (Windows, default macOS) the direct
+  // existsSync() hit already succeeds, so the explicit -ci fallback never runs.
+  // Either way the icon must resolve — that is what this test guards.
+  if (!FS_CASE_INSENSITIVE) assert.match(resolved[0].ruleName, /-ci$/);
 });
 
 test('path traversal is blocked (URL normalization + escapes-assetRoot defense in depth)', () => {
@@ -197,6 +204,67 @@ test('handles nested image refs inside <g>', () => {
   </svg>`;
   const { resolved } = inlineExternalImages({ svg, resolve: resolver });
   assert.strictEqual(resolved.length, 1);
+});
+
+// --- searchRecursive: flat URL namespace against a nested local mirror ------
+
+const flatUrl = 'https://app.diagrams.net/img/lib/mscae/App_Services.svg';
+
+test('flat URL does NOT resolve into a nested mirror without searchRecursive', () => {
+  const r = createResolver({
+    rules: [{ name: 'mscae-strict', match: { pathSuffix: '/img/lib/mscae/' }, localBase: 'azure/' }],
+    assetRoot: tmpRoot,
+  });
+  assert.strictEqual(r(flatUrl).ok, false);
+});
+
+test('searchRecursive resolves a flat URL by basename anywhere under localBase', () => {
+  const r = createResolver({
+    rules: [{ name: 'mscae', match: { pathSuffix: '/img/lib/mscae/' }, localBase: 'azure/', searchRecursive: true }],
+    assetRoot: tmpRoot,
+  });
+  const hit = r(flatUrl);
+  assert.strictEqual(hit.ok, true, hit.reason);
+  assert.strictEqual(path.basename(hit.localPath), 'App_Services.svg');
+  assert.match(hit.ruleName, /-recursive$/);
+});
+
+test('searchRecursive is case-insensitive and still misses genuinely absent icons', () => {
+  const r = createResolver({
+    rules: [{ name: 'mscae', match: { pathSuffix: '/img/lib/mscae/' }, localBase: 'azure/', searchRecursive: true }],
+    assetRoot: tmpRoot,
+  });
+  assert.strictEqual(r('https://app.diagrams.net/img/lib/mscae/app_services.svg').ok, true);
+  assert.strictEqual(r('https://app.diagrams.net/img/lib/mscae/Nope.svg').ok, false);
+});
+
+test('searchRecursive skips the _inbox staging directory', () => {
+  fs.mkdirSync(path.join(tmpRoot, '_inbox'), { recursive: true });
+  fs.writeFileSync(path.join(tmpRoot, '_inbox', 'Staged.svg'), svgIcon);
+  const r = createResolver({
+    rules: [{ name: 'root', match: { pathSuffix: '/img/lib/mscae/' }, localBase: '', searchRecursive: true }],
+    assetRoot: tmpRoot,
+  });
+  assert.strictEqual(r('https://app.diagrams.net/img/lib/mscae/Staged.svg').ok, false);
+});
+
+test('isInside rejects a sibling directory sharing the root prefix', () => {
+  const { isInside } = _internals;
+  const root = path.join(path.sep, 'srv', 'assets');
+  assert.strictEqual(isInside(root, path.join(root, 'azure', 'VM.svg')), true);
+  assert.strictEqual(isInside(root, root), true);
+  assert.strictEqual(isInside(root, `${root}-evil${path.sep}VM.svg`), false);
+});
+
+test('alias escaping assetRoot is rejected', () => {
+  const r = createResolver({
+    rules: [],
+    aliases: { 'https://x.example/a.svg': '../outside.svg' },
+    assetRoot: tmpRoot,
+  });
+  const hit = r('https://x.example/a.svg');
+  assert.strictEqual(hit.ok, false);
+  assert.match(hit.reason, /escapes assetRoot/);
 });
 
 // --- Cleanup ----------------------------------------------------------------

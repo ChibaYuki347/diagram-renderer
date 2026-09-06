@@ -73,6 +73,40 @@ function fileToDataUri(absPath) {
   return { dataUri: `data:${mime};base64,${buf.toString('base64')}`, mime, bytes: buf.length };
 }
 
+// True only when `p` is `root` itself or genuinely nested under it.
+// A bare `p.startsWith(root)` would also accept a sibling like `<root>-evil`.
+function isInside(root, p) {
+  return p === root || p.startsWith(root + path.sep);
+}
+
+// Build (once per directory, per resolver) a lowercased basename → absolute path
+// map for every file under `dir`. Used by rules that opt into `searchRecursive`.
+function buildBasenameIndex(dir) {
+  const index = new Map();
+  const stack = [dir];
+  while (stack.length) {
+    const cur = stack.pop();
+    let dirents;
+    try {
+      dirents = fs.readdirSync(cur, { withFileTypes: true });
+    } catch (_) {
+      continue;
+    }
+    for (const d of dirents) {
+      const abs = path.join(cur, d.name);
+      if (d.isDirectory()) {
+        if (d.name === '_inbox' || d.name.startsWith('.')) continue;
+        stack.push(abs);
+      } else if (d.isFile()) {
+        const key = d.name.toLowerCase();
+        // First hit wins so results are stable regardless of traversal order.
+        if (!index.has(key)) index.set(key, abs);
+      }
+    }
+  }
+  return index;
+}
+
 // Walk preserveOrder tree to find all <image> and <img> nodes.
 // Calls cb(node) with the node-object { tagName: [children], ":@": {attrs} }.
 function walkImages(arr, cb) {
@@ -116,16 +150,27 @@ function writeHrefAttr(node, attrName, value) {
  *                 after it is the tail.
  * @param {Object} opts.aliases  Map of full URL → local relative path (overrides).
  * @param {string} opts.assetRoot  Absolute base directory where localBase paths resolve from.
+ *
+ * Rules may also set `searchRecursive: true` to fall back to a basename search
+ * anywhere under `localBase` when the direct path misses. This is for URL
+ * namespaces that are flat while the local mirror is nested (e.g. drawio's
+ * `mscae/` library against the category-nested `azure/` mirror).
  */
 function createResolver({ rules = [], aliases = {}, assetRoot }) {
   if (!assetRoot) throw new Error('createResolver: assetRoot is required');
   const absRoot = path.resolve(assetRoot);
+  // Memoized per resolver: a recursive walk is only paid for once per subtree,
+  // and only when a rule opts in AND the direct lookup already missed.
+  const basenameIndexes = new Map();
 
   return function resolve(url) {
     // 1. Aliases take precedence (exact full-URL match)
     if (Object.prototype.hasOwnProperty.call(aliases, url)) {
       const rel = aliases[url];
       const abs = path.resolve(absRoot, rel);
+      if (!isInside(absRoot, abs)) {
+        return { ok: false, reason: `alias escapes assetRoot: ${abs}`, ruleName: 'alias' };
+      }
       if (fs.existsSync(abs)) return { ok: true, localPath: abs, ruleName: 'alias' };
       return { ok: false, reason: `alias points to missing file: ${abs}`, ruleName: 'alias' };
     }
@@ -153,7 +198,7 @@ function createResolver({ rules = [], aliases = {}, assetRoot }) {
       const localBase = rule.localBase || '';
       const candidate = path.resolve(absRoot, localBase, tail);
       // Safety: ensure candidate stays within assetRoot (prevent path traversal via crafted URLs)
-      if (!candidate.startsWith(absRoot)) {
+      if (!isInside(absRoot, candidate)) {
         return { ok: false, reason: `resolved path escapes assetRoot: ${candidate}`, ruleName: rule.name };
       }
       if (fs.existsSync(candidate)) {
@@ -168,6 +213,15 @@ function createResolver({ rules = [], aliases = {}, assetRoot }) {
           if (hit) return { ok: true, localPath: path.join(dir, hit), ruleName: rule.name + '-ci' };
         }
       } catch (_) {}
+      // Opt-in recursive fallback: match the basename anywhere under localBase.
+      if (rule.searchRecursive) {
+        const baseDir = path.resolve(absRoot, localBase);
+        if (isInside(absRoot, baseDir)) {
+          if (!basenameIndexes.has(baseDir)) basenameIndexes.set(baseDir, buildBasenameIndex(baseDir));
+          const hit = basenameIndexes.get(baseDir).get(path.basename(candidate).toLowerCase());
+          if (hit) return { ok: true, localPath: hit, ruleName: rule.name + '-recursive' };
+        }
+      }
       return { ok: false, reason: `matched rule "${rule.name}" but local file missing: ${candidate}`, ruleName: rule.name };
     }
 
@@ -238,5 +292,5 @@ module.exports = {
   inlineExternalImages,
   createResolver,
   // exposed for unit tests
-  _internals: { normalizeUrl, walkImages, readHrefAttrs, mimeFor },
+  _internals: { normalizeUrl, walkImages, readHrefAttrs, mimeFor, isInside, buildBasenameIndex },
 };
