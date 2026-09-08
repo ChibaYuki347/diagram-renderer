@@ -59,3 +59,41 @@ jobs:
           cd skills/diagram-renderer
           npm install
           npm test
+
+  e2e:
+    name: end-to-end render
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: skills/diagram-renderer
+        run: npm install
+
+      # Octicons are MIT and fetched automatically, so CI can populate a real
+      # mirror. The Microsoft packs require manual download and are never
+      # redistributed, so the committed sample deliberately uses Octicons only.
+      - name: Populate icon mirror (Octicons only)
+        working-directory: skills/diagram-renderer
+        run: READ_AND_AGREE=1 bash scripts/fetch-icons.sh github
+
+      # Renders the committed samples for real: proves Chromium launches, the
+      # mirror resolves live jsDelivr URLs, and that an unresolvable icon is a
+      # hard failure rather than a silent network fetch.
+      - name: Render samples end-to-end
+        working-directory: skills/diagram-renderer
+        env:
+          E2E_OUT_DIR: ${{ github.workspace }}/e2e-out
+        run: npm run test:e2e
+
+      - name: Upload rendered samples
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rendered-samples
+          path: e2e-out/
+          if-no-files-found: warn

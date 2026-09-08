@@ -6,6 +6,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-09-06
+
+### Added
+- **End-to-end render smoke test** (`test/e2e-render.test.js`, `npm run test:e2e`)
+  and a dedicated `e2e` CI job. Until now CI only ran unit tests: it never
+  launched Chromium, never resolved an icon and never exercised strict-offline
+  mode, so the suite could be green while the renderer was broken on a given
+  platform — which is exactly how the Linux-only Chromium lookup fixed in 0.3.0
+  survived review. The new job renders committed samples for real and proves:
+  - `mmdc` and Chromium resolve and launch;
+  - every `<image xlink:href="https://…">` in the sample inlines from the local
+    mirror (`unresolved.length === 0`);
+  - Chromium issues **zero** network requests during the render;
+  - an icon that is *not* mirrored fails the render instead of silently
+    fetching it.
+- Committed samples that double as documentation of the expected input shape:
+  `test/sample-architecture.drawio.svg` (5 Octicon references) and
+  `test/sample-flow.mmd`.
+- The `e2e` job uploads the rendered PNGs as a build artifact
+  (`rendered-samples`), so a reviewer can download and actually look at what
+  the renderer produced for a given commit.
+- `npm run fetch-icons` convenience script.
+
+### Fixed
+Both of these were found by the new end-to-end test on its first run, and
+neither was reachable from the unit suite:
+- **Mermaid rendering was broken on every fresh install.** `resolveMmdc()`
+  located mermaid-cli via `require.resolve('@mermaid-js/mermaid-cli/package.json')`,
+  but that package declares an `exports` map with no `./package.json` entry, so
+  the call always threw `ERR_PACKAGE_PATH_NOT_EXPORTED` and the renderer
+  reported "mermaid-cli (mmdc) not found. Run `npm install`" even immediately
+  after a successful `npm install`. It now falls back to walking the
+  `node_modules` chain directly.
+- **Valid draw.io SVG exports were rejected.** `detectDrawioKind()` only
+  examined the single tag following the XML declaration, so any file with a
+  comment, `DOCTYPE` or processing instruction before the root element failed
+  with "could not detect SVG content in input" — including exports that draw.io
+  itself produces. The whole XML prologue is now skipped. Covered by 14 new
+  unit tests in `test/detect-drawio-kind.test.js`.
+
 ## [0.3.0] — 2026-05-23
 
 ### Added

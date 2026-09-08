@@ -63,12 +63,23 @@ function loadPuppeteer() {
 }
 
 // Detect whether the source looks like SVG vs raw drawio XML.
+// Identify what kind of file we were handed.
+//
+// XML permits comments, processing instructions and a DOCTYPE between the XML
+// declaration and the root element, and real draw.io exports do emit them, so
+// strip that prologue before looking for the root tag. Doing this naively (just
+// checking the first tag after `<?xml?>`) rejects valid input.
 function detectDrawioKind(content) {
-  const head = content.slice(0, 2048).trim();
-  if (/^<\?xml[^>]*\?>/.test(head)) {
-    const next = head.replace(/^<\?xml[^>]*\?>\s*/, '');
-    if (/^<svg[\s>]/i.test(next)) return 'svg';
-    if (/^<mxfile[\s>]/i.test(next) || /^<mxGraphModel[\s>]/i.test(next)) return 'drawio-xml';
+  let head = content.slice(0, 8192).trim();
+  head = head.replace(/^<\?xml[^>]*\?>\s*/, '');
+  // Drop any number of leading comments / PIs / DOCTYPE declarations.
+  for (;;) {
+    const stripped = head
+      .replace(/^<!--[\s\S]*?-->\s*/, '')
+      .replace(/^<\?[\s\S]*?\?>\s*/, '')
+      .replace(/^<!DOCTYPE[^>[]*(\[[\s\S]*?\])?[^>]*>\s*/i, '');
+    if (stripped === head) break;
+    head = stripped;
   }
   if (/^<svg[\s>]/i.test(head)) return 'svg';
   if (/^<mxfile[\s>]/i.test(head) || /^<mxGraphModel[\s>]/i.test(head)) return 'drawio-xml';

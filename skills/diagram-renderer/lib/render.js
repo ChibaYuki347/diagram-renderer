@@ -38,16 +38,38 @@ const THEMES_DIR = path.join(SKILL_ROOT, 'themes');
 // separate `mmdc.cmd` for that), and spawning `.cmd` requires `shell: true`,
 // which is unsafe with the user-supplied paths we pass through.
 function resolveMmdc() {
-  try {
-    const pkgPath = require.resolve('@mermaid-js/mermaid-cli/package.json', { paths: [SKILL_ROOT] });
-    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-    const rel = typeof pkg.bin === 'string' ? pkg.bin : pkg.bin && pkg.bin.mmdc;
-    if (rel) {
+  for (const pkgPath of mmdcPackageCandidates()) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+      const rel = typeof pkg.bin === 'string' ? pkg.bin : pkg.bin && pkg.bin.mmdc;
+      if (!rel) continue;
       const entry = path.resolve(path.dirname(pkgPath), rel);
       if (fs.existsSync(entry)) return entry;
-    }
-  } catch (_) {}
+    } catch (_) {}
+  }
   return null;
+}
+
+// Locate mermaid-cli's package.json.
+//
+// `require.resolve('@mermaid-js/mermaid-cli/package.json')` is tried first but
+// cannot be relied on: packages that declare an `exports` map without a
+// `./package.json` entry make that throw ERR_PACKAGE_PATH_NOT_EXPORTED even
+// though the package is installed and perfectly usable. So we also walk the
+// node_modules chain by hand.
+function mmdcPackageCandidates() {
+  const out = [];
+  try {
+    out.push(require.resolve('@mermaid-js/mermaid-cli/package.json', { paths: [SKILL_ROOT] }));
+  } catch (_) {}
+  let dir = SKILL_ROOT;
+  for (;;) {
+    out.push(path.join(dir, 'node_modules', '@mermaid-js', 'mermaid-cli', 'package.json'));
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return out.filter((p, i) => out.indexOf(p) === i && fs.existsSync(p));
 }
 
 // Try to locate an already-installed Chromium so mmdc doesn't download a fresh one.

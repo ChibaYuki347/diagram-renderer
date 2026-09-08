@@ -1,6 +1,6 @@
 {
   "name": "diagram-renderer",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "Render Mermaid / draw.io diagrams to PNG/SVG for embedding in PPT/doc skills.",
   "bin": {
@@ -14,7 +14,9 @@
     "fast-xml-parser": "^5.8.0"
   },
   "scripts": {
-    "test": "node test/inline-external-images.test.js && node test/icon-index.test.js"
+    "test": "node test/inline-external-images.test.js && node test/icon-index.test.js && node test/detect-drawio-kind.test.js",
+    "test:e2e": "node test/e2e-render.test.js",
+    "fetch-icons": "bash scripts/fetch-icons.sh"
   },
   "engines": {
     "node": ">=18"
