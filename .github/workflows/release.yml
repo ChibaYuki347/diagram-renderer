@@ -1,53 +1,55 @@
 name: release
+
 on:
   push:
     branches: [main]
-    paths:
-      - '.plugin/plugin.json'
-      - '.claude-plugin/plugin.json'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Leave empty for automatic minor/patch or recovery; exact next major only (for example 1.0.0)'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: write
+  pull-requests: read
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
 
 jobs:
   release:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name != 'push' || !startsWith(github.event.head_commit.message, 'chore(release): '))
     runs-on: ubuntu-latest
     steps:
+      # Resolve main after waiting for concurrency, not the queued event SHA.
       - uses: actions/checkout@v4
         with:
+          ref: main
           fetch-depth: 0
 
-      - name: Read version
-        id: version
-        run: |
-          v=$(jq -r .version .plugin/plugin.json)
-          echo "v=$v" >> "$GITHUB_OUTPUT"
-          echo "Release target: v$v"
-
-      - name: Check whether tag already exists
-        id: check
-        run: |
-          if git rev-parse "v${{ steps.version.outputs.v }}" >/dev/null 2>&1; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-            echo "Tag v${{ steps.version.outputs.v }} already exists — skipping release"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Create tag
-        if: steps.check.outputs.exists == 'false'
-        run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git tag -a "v${{ steps.version.outputs.v }}" -m "Release v${{ steps.version.outputs.v }}"
-          git push origin "v${{ steps.version.outputs.v }}"
-
-      - name: Create GitHub Release
-        if: steps.check.outputs.exists == 'false'
-        uses: softprops/action-gh-release@v2
+      - uses: actions/setup-node@v4
         with:
-          tag_name: v${{ steps.version.outputs.v }}
-          name: v${{ steps.version.outputs.v }}
-          body_path: CHANGELOG.md
-          draft: false
-          prerelease: false
+          node-version: '20'
+
+      - name: Test release tooling offline
+        run: node --test tools/plan-release.test.js tools/release.test.js
+
+      - name: Validate repository versions and changelog
+        run: node tools/plan-release.js --check
+
+      - name: Install dependencies and run renderer unit tests
+        working-directory: skills/diagram-renderer
+        run: |
+          npm install
+          npm test
+
+      - name: Plan, validate cut, atomically push and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: node tools/release.js
