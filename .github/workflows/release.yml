@@ -24,8 +24,8 @@ jobs:
     if: >-
       github.ref == 'refs/heads/main' &&
       (github.event_name != 'push' ||
-        github.actor != 'github-actions[bot]' ||
-        !startsWith(github.event.head_commit.message, 'chore(release): '))
+        !(github.actor == 'github-actions[bot]' &&
+          startsWith(github.event.head_commit.message, 'chore(release): ')))
     runs-on: ubuntu-latest
     steps:
       # Resolve main after waiting for concurrency, not the queued event SHA.
