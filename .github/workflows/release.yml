@@ -21,9 +21,7 @@ concurrency:
 
 jobs:
   release:
-    if: >-
-      github.ref == 'refs/heads/main' &&
-      (github.event_name != 'push' || !startsWith(github.event.head_commit.message, 'chore(release): '))
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       # Resolve main after waiting for concurrency, not the queued event SHA.
@@ -31,6 +29,7 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
@@ -52,4 +51,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_VERSION: ${{ inputs.version }}
-        run: node tools/release.js
+        run: |
+          git remote set-url --push origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          node tools/release.js
