@@ -62,7 +62,7 @@ jobs:
           release_auth_value="AUTHORIZATION: basic $release_auth_header"
           echo "::add-mask::$release_auth_value"
           release_extraheader_key="http.https://github.com/${GITHUB_REPOSITORY}.extraheader"
-          trap 'git config --local --unset-all "$release_extraheader_key" || true; unset release_auth_header release_auth_value' EXIT
+          trap 'git config --local --unset-all "$release_extraheader_key" || true' EXIT
           git config --local "$release_extraheader_key" \
             "$release_auth_value"
           node tools/release.js
