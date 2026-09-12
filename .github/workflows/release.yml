@@ -57,7 +57,9 @@ jobs:
           RELEASE_VERSION: ${{ inputs.version }}
         run: |
           release_auth_header="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          release_extraheader_key="http.https://github.com/${GITHUB_REPOSITORY}.extraheader"
+          trap 'git config --local --unset-all "$release_extraheader_key" || true' EXIT
           echo "::add-mask::$release_auth_header"
-          git config --local "http.https://github.com/${GITHUB_REPOSITORY}.extraheader" \
+          git config --local "$release_extraheader_key" \
             "AUTHORIZATION: basic $release_auth_header"
           node tools/release.js
