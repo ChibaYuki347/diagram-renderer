@@ -23,7 +23,7 @@ jobs:
   release:
     if: >-
       github.ref == 'refs/heads/main' &&
-      github.actor != 'github-actions[bot]'
+      (github.event_name != 'push' || github.actor != 'github-actions[bot]')
     runs-on: ubuntu-latest
     steps:
       # Resolve main after waiting for concurrency, not the queued event SHA.
