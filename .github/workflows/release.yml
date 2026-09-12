@@ -56,10 +56,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_VERSION: ${{ inputs.version }}
         run: |
+          set -euo pipefail
           release_auth_header="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
-          release_extraheader_key="http.https://github.com/${GITHUB_REPOSITORY}.extraheader"
-          trap 'git config --local --unset-all "$release_extraheader_key" || true' EXIT
           echo "::add-mask::$release_auth_header"
+          release_extraheader_key="http.https://github.com/${GITHUB_REPOSITORY}.extraheader"
+          trap 'git config --local --unset-all "$release_extraheader_key" || true; unset release_auth_header' EXIT
           git config --local "$release_extraheader_key" \
             "AUTHORIZATION: basic $release_auth_header"
           node tools/release.js
