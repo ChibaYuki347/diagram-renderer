@@ -1,6 +1,6 @@
 {
   "name": "diagram-renderer",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "description": "Render Mermaid / draw.io diagrams to PNG/SVG for embedding in PPT/doc skills.",
   "bin": {

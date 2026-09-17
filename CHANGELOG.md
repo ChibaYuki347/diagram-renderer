@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-09-17
+
 ### Added
 - Changelog-driven release automation with automatic minor/patch selection,
   explicit manual next-major releases, open-PR holds and verified recovery.
