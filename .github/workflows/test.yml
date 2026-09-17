@@ -21,16 +21,11 @@ jobs:
       - name: Validate .claude-plugin/plugin.json
         run: node -e "JSON.parse(require('fs').readFileSync('.claude-plugin/plugin.json'))"
 
-      - name: Verify plugin versions match
-        run: |
-          v1=$(jq -r .version .plugin/plugin.json)
-          v2=$(jq -r .version .claude-plugin/plugin.json)
-          v3=$(jq -r .version skills/diagram-renderer/package.json)
-          if [ "$v1" != "$v2" ] || [ "$v1" != "$v3" ]; then
-            echo "::error::version drift — .plugin ($v1), .claude-plugin ($v2), package.json ($v3) must match"
-            exit 1
-          fi
-          echo "All three manifests at v$v1"
+      - name: Verify versions and changelog match
+        run: node tools/plan-release.js --check
+
+      - name: Test release tooling offline
+        run: node --test tools/plan-release.test.js tools/release.test.js
 
       - name: Verify no local-assets in repo
         run: |

@@ -246,10 +246,18 @@ While pre-1.0, minor bumps may contain breaking changes; see
 copilot plugin update diagram-renderer
 ```
 
-Releases are published automatically by `.github/workflows/release.yml`
-when the `.plugin/plugin.json` version field changes on `main`. CI enforces
-that `.plugin/plugin.json`, `.claude-plugin/plugin.json` and
-`skills/diagram-renderer/package.json` all carry the same version.
+Releases are published automatically from user-visible `CHANGELOG.md`
+Unreleased notes on `main`: Added/Removed selects minor, other notes select
+patch, and empty notes do nothing. A major requires manual dispatch with the
+exact next major version. Do not hand-bump versions in feature PRs: automation
+synchronizes both plugin manifests, `skills/diagram-renderer/package.json`,
+and any existing package lock when cutting the release.
+
+Open PRs that affect pending notes hold publication. A standing **Release due**
+issue tracks pending notes, holds and inspection failures. Safe retries reuse
+the verified release cut, never retag newer main. See
+[RELEASING.md](RELEASING.md) for major-release coordination, recovery,
+permissions and the separate marketplace update-PR delivery step.
 
 This plugin declares its capabilities via the `provides` field in the
 manifest, so a consuming skill can discover the CLIs without hardcoding paths:
@@ -329,7 +337,7 @@ every pull request:
 
 | Job | What it guards | Runtime |
 | --- | --- | --- |
-| `test` | Manifests are valid JSON and all three versions agree; no `.local-assets/` or `.diagram-cache/` was committed; resolver rules and aliases parse; unit tests pass. | ~40 s |
+| `test` | Manifests/changelog (and any existing lock) agree; offline release policy, PR guard and retry tests pass; no `.local-assets/` or `.diagram-cache/` was committed; resolver rules and aliases parse; renderer unit tests pass. | ~1 min |
 | `e2e` | The renderer actually runs: dependencies install, the Octicon mirror populates, and the committed samples render to real PNGs with zero network access. Uploads the PNGs as an artifact. | a few minutes |
 
 To inspect a run:

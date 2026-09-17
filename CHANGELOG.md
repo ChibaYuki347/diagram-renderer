@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Changelog-driven release automation with automatic minor/patch selection,
+  explicit manual next-major releases, open-PR holds and verified recovery.
+- A standing release-due issue for unpublished notes, holds and inspection
+  failures, refreshed on weekday mornings and after release runs.
+- Offline release tooling tests in CI and a maintainer release guide covering
+  version synchronization, permissions and marketplace delivery.
+
 ## [0.4.0] — 2026-09-06
 
 ### Added

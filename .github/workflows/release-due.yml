@@ -1,0 +1,40 @@
+name: release-due
+
+on:
+  schedule:
+    # Monday-Friday 06:30 JST = Sunday-Thursday 21:30 UTC.
+    - cron: '30 21 * * 0-4'
+  workflow_dispatch:
+  workflow_run:
+    workflows: [release]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: release-due-main
+  cancel-in-progress: false
+
+jobs:
+  release-due:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Update standing release-due issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node tools/release-due.js
