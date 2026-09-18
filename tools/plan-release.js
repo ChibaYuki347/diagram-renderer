@@ -10,6 +10,11 @@ const MANIFESTS = [
 ];
 const LOCK = 'skills/diagram-renderer/package-lock.json';
 
+// Keep a Changelog has no heading for a breaking change, so past 1.0.0 one arrives
+// as a bullet under `### Changed` that says so. The marker has to lead the bullet:
+// read anywhere in the line it fires on bullets that merely describe this rule.
+const BREAKING = /^\s*-\s+\**BREAKING\b/;
+
 function versionParts(version) {
   if (typeof version !== 'string' || !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version)) {
     throw new Error(`Expected a stable, exact SemVer version, got ${JSON.stringify(version)}`);
@@ -82,12 +87,15 @@ function parseChangelog(input) {
   const categories = headings(notes).filter(h => h.level === 3);
   const meaningful = visibleMarkdown(notes).replace(/^### .+$/gm, '').trim();
   let minor = false;
+  const filled = [];
   for (let i = 0; i < categories.length; i++) {
     const category = categories[i];
     const body = visibleMarkdown(notes.slice(category.end, categories[i + 1]?.start ?? notes.length));
+    if (body) filled.push(category.title);
     if (body && ['Added', 'Removed'].includes(category.title)) minor = true;
   }
-  return { text, unreleased, next, notes, hasNotes: Boolean(meaningful), minor, latest: latest[1] };
+  const breaking = visibleMarkdown(notes).split('\n').filter(line => BREAKING.test(line)).map(line => line.trim());
+  return { text, unreleased, next, notes, hasNotes: Boolean(meaningful), minor, sections: filled, breaking, latest: latest[1] };
 }
 
 function readState(read = file => fs.readFileSync(file, 'utf8'), has = fs.existsSync) {
@@ -128,6 +136,30 @@ function planRelease(state, { version = '', allowMajor = false, date = new Date(
   }
   versionParts(next);
   if (!state.changelog.hasNotes) return { kind: 'noop', current: state.version, reason: 'Unreleased has no user-visible notes' };
+
+  // Past 1.0.0 the derived path must refuse anything breaking. MAJOR is a promise
+  // about stability and a workflow cannot make one, so the release stops and waits
+  // for the explicit next-major above. Below 1.0.0 a removal is still a minor,
+  // which is what this project has done. An explicitly requested major has already
+  // been checked, so it is not second-guessed here.
+  if (!version && current[0] >= 1) {
+    if (state.changelog.sections.includes('Removed')) {
+      return {
+        kind: 'noop',
+        current: state.version,
+        reason: 'a `### Removed` past 1.0.0 is a breaking change, and only a person can take the major',
+      };
+    }
+    if (state.changelog.breaking.length) {
+      return {
+        kind: 'noop',
+        current: state.version,
+        reason: `${state.changelog.breaking.length} entry/entries past 1.0.0 are marked BREAKING, ` +
+          `and only a person can take the major: ${state.changelog.breaking[0]}`,
+      };
+    }
+  }
+
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || new Date(date).toISOString().slice(0, 10) !== date) {
     throw new Error('Release date must be a valid YYYY-MM-DD date');
   }

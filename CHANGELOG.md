@@ -6,6 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- A shared release-rule conformance suite, `tools/release-conformance.js`,
+  vendored from `chibayuki-private-marketplace` and run against this repository's
+  own planner. The suite is the shared rule; the implementation stays local.
+
+### Changed
+- The open-PR hold now waits for what a branch adds under `[Unreleased]` rather
+  than for any CHANGELOG.md edit. Measured against `microsoft-brand-guidelines`'
+  history, the wider rule held 7 of 40 releases instead of 4, one of them for 116
+  hours, and caught nothing extra.
+- The release is refused past 1.0.0 when the notes carry a `### Removed` or a
+  bullet led by **BREAKING**, because only a person can take a major.
+
 ## [0.5.0] — 2026-09-17
 
 ### Added

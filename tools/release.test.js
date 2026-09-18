@@ -42,6 +42,7 @@ function setup(t, notes = '### Fixed\n- Release fixture fix.') {
   const github = {
     releases, writes, pages: async () => [],
     release: async tag => releases.get(tag) || null,
+    file: async () => '## [Unreleased]\n\n### Added\n- Pending work from the open branch.\n\n## [0.4.0] - 2026-01-01\n',
     request: async (method, endpoint, body) => {
       assert.equal(method, 'POST');
       assert.equal(endpoint, '/releases');
@@ -79,7 +80,9 @@ test('empty notes do not create commits, tags or releases', async t => {
 test('open PRs hold publication; API failures and validation failures leave remote untouched', async t => {
   const ctx = setup(t);
   const before = remoteRef(ctx.root, 'refs/heads/main');
-  ctx.github.pages = async endpoint => endpoint.startsWith('/pulls?') ? [{ number: 7, title: 'Pending' }] : [{ filename: 'CHANGELOG.md' }];
+  ctx.github.pages = async endpoint => endpoint.startsWith('/pulls?')
+    ? [{ number: 7, title: 'Pending', head: { sha: 'a'.repeat(40) } }]
+    : [{ filename: 'CHANGELOG.md', status: 'modified' }];
   assert.equal((await runRelease(ctx)).kind, 'held');
   ctx.github.pages = async () => { throw new Error('API failed'); };
   await assert.rejects(runRelease(ctx), /API failed/);
@@ -197,7 +200,9 @@ test('a PR opened during validation holds the cut without changing remote refs',
   const result = await runRelease({
     ...ctx,
     validate: () => {
-      ctx.github.pages = async endpoint => endpoint.startsWith('/pulls?') ? [{ number: 8, title: 'New PR' }] : [{ filename: 'CHANGELOG.md' }];
+      ctx.github.pages = async endpoint => endpoint.startsWith('/pulls?')
+        ? [{ number: 8, title: 'New PR', head: { sha: 'b'.repeat(40) } }]
+        : [{ filename: 'CHANGELOG.md', status: 'modified' }];
     },
   });
   assert.equal(result.kind, 'held');
