@@ -87,19 +87,36 @@ test('CRLF, comments and fenced headings cannot change release boundaries or bum
   assert.equal(planRelease(state(fixture('### Fixed\n- Document literal comments:\n```html\n<!--\n```\n'))).version, '0.4.1');
 });
 
-test('PR guard holds changelog edits, renames and explicit references but not unrelated PRs', async () => {
-  const pulls = [1, 2, 3, 4, 5].map(number => ({ number, title: `PR ${number}` }));
+test('PR guard holds absorbable bullets, renames and explicit references but not unrelated or unabsorbable PRs', async () => {
+  const pulls = [1, 2, 3, 4, 5, 6].map(number => ({ number, title: `PR ${number}`, head: { sha: String(number).repeat(40) } }));
   const files = {
     1: [{ filename: 'CHANGELOG.md' }],
     2: [{ filename: 'archive.md', previous_filename: 'CHANGELOG.md' }],
     3: [{ filename: 'README.md' }],
     4: [{ filename: 'renderer.js' }],
     5: [{ filename: 'README.md' }],
+    6: [{ filename: 'CHANGELOG.md' }],
   };
-  const github = { pages: async endpoint => endpoint.startsWith('/pulls?') ? pulls : files[endpoint.split('/')[2]] };
-  assert.deepEqual((await inFlight(github, 'Fix #3 and https://github.com/owner/repo/pull/4, not #50.')).map(pull => pull.number), [1, 2, 3, 4]);
+  const notes = '### Fixed\n- Already on main.';
+  const branches = {
+    // Adds a bullet the cut would absorb.
+    [pulls[0].head.sha]: '## [Unreleased]\n\n### Added\n- Work still in flight.\n\n## [0.4.0] - 2026-01-01\n',
+    // Touches CHANGELOG.md, but only repeats what main already carries and edits
+    // a released section -- the cut has nothing to absorb, so this must not hold.
+    [pulls[5].head.sha]: '## [Unreleased]\n\n### Fixed\n- Already on main.\n\n## [0.4.0] - 2026-01-01\n\n### Fixed\n- Typo in a shipped line.\n',
+  };
+  const github = {
+    pages: async endpoint => endpoint.startsWith('/pulls?') ? pulls : files[endpoint.split('/')[2]],
+    file: async (path, ref) => branches[ref],
+  };
+  const held = await inFlight(github, `${notes}\nFix #3 and https://github.com/owner/repo/pull/4, not #50.`);
+  assert.deepEqual(held.map(pull => pull.number), [1, 2, 3, 4]);
+  assert.equal(held[0].entries, 1);
   await assert.rejects(inFlight({ pages: async () => { throw new Error('API unavailable'); } }, ''), /unavailable/);
   await assert.rejects(inFlight({ pages: async () => [{}] }, ''), /invalid/);
+  await assert.rejects(
+    inFlight({ pages: async endpoint => endpoint.startsWith('/pulls?') ? [{ number: 1, title: 'No head' }] : files[1] }, ''),
+    /no head commit/);
 });
 
 test('API pagination is complete; only explicit release 404 is absence; API errors never become no-PR', async () => {

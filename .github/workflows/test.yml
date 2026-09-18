@@ -45,6 +45,15 @@ jobs:
       - name: Test release tooling offline
         run: node --test tools/plan-release.test.js tools/release.test.js
 
+      # The shared release rules. tools/release-conformance.js is vendored from
+      # chibayuki-private-marketplace and is byte-identical in every plugin repo
+      # in that catalog; that repo's CI fails if a copy drifts. Running it here is
+      # what makes a disagreement this repo's problem at the moment it is
+      # introduced, rather than a surprise the next time two plugins are released
+      # the same day and only one of them holds.
+      - name: Agree with the shared release rules
+        run: node --test tools/release-conformance.test.js
+
       - name: Verify no local-assets in repo
         run: |
           if find . -type d -name '.local-assets' -not -path './node_modules/*' | grep -q .; then
