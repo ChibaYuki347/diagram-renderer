@@ -17,7 +17,11 @@ concurrency group. A release already in progress is never cancelled.
    **only that version's notes**.
 
 The manifests are `.plugin/plugin.json`, `.claude-plugin/plugin.json` and
-`skills/diagram-renderer/package.json`. The package lock is deliberately
+`skills/diagram-renderer/package.json`. The first two are byte-identical copies
+of one manifest — `.plugin/` is read by Copilot CLI, `.claude-plugin/` by Claude
+Code — and `test.yml` fails on any difference between them, not just a version
+difference; `plan-release.js --check` separately holds the version across all
+three. The package lock is deliberately
 gitignored in this repository; automation does not introduce or commit one.
 If a lock exists locally its top-level version and `packages[""].version`
 (lockfile v2/v3) must match and are updated too. If the project later tracks

@@ -21,6 +21,24 @@ jobs:
       - name: Validate .claude-plugin/plugin.json
         run: node -e "JSON.parse(require('fs').readFileSync('.claude-plugin/plugin.json'))"
 
+      # `.plugin/` is what Copilot CLI reads; `.claude-plugin/` is what Claude Code
+      # reads. Every commit that has touched either file has kept them
+      # byte-identical, so that is the invariant actually being held -- but the
+      # only part of it checked until now was `version`, via plan-release.js
+      # --check. That left `description` unguarded, and description is not
+      # cosmetic: the marketplace builds its catalog entry from `.plugin/` alone
+      # (chibayuki-private-marketplace CHARTER.md §5.5), so a drifted
+      # `.claude-plugin/` description would reach Claude Code users while the
+      # catalog faithfully mirrored the other file, with nothing comparing them.
+      - name: Verify the two plugin manifests are identical
+        run: |
+          if ! cmp -s .plugin/plugin.json .claude-plugin/plugin.json; then
+            echo "::error::.plugin/plugin.json and .claude-plugin/plugin.json differ; they must stay byte-identical"
+            diff -u .plugin/plugin.json .claude-plugin/plugin.json || true
+            exit 1
+          fi
+          echo "Both manifests are byte-identical"
+
       - name: Verify versions and changelog match
         run: node tools/plan-release.js --check
 
