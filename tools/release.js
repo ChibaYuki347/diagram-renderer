@@ -95,7 +95,7 @@ function verifyCut(root, commit, version) {
   }
   const previous = readAt(root, base);
   const manual = Number(version.split('.')[0]) === Number(previous.version.split('.')[0]) + 1;
-  const plan = planRelease(previous, { date: state.changelog.latestDate, version: manual ? version : '', allowMajor: manual });
+  const plan = planRelease(previous, { date: state.changelog.latestDate, version: manual ? version : '', allowMajor: manual, requirePrs: true });
   if (plan.kind !== 'release' || plan.version !== version) throw new Error('Release cut does not match its parent plan');
   const actualFiles = lines(git(root, 'diff-tree', '--no-commit-id', '--name-only', '-r', commit)).sort();
   const expectedFiles = Object.keys(plan.changes).sort();
@@ -159,13 +159,16 @@ async function runRelease({ root, github, version = '', allowMajor = false, date
   if (remoteRef(root, 'refs/heads/main') !== base) throw new Error('main moved since checkout; retry on latest main');
   const state = currentState(root);
   // Validate manual input even on retries and empty runs.
-  const plan = planRelease(state, { version, allowMajor, date });
+  const plan = planRelease(state, { version, allowMajor, date, requirePrs: true });
   const publication = await inspectPublication(root, github, state);
   if (publication.kind === 'recover') {
     if (version) throw new Error('Recover the previous cut with an empty version input before requesting a new major');
     await publish(root, github, publication);
     return { kind: 'recovered', tag: publication.tag, commit: publication.commit };
   }
+  // A refusal fails the run: a person has to act, and a green run would retry it
+  // every morning with nobody told. Only a day with no change files is quiet.
+  if (plan.kind === 'refused') throw new Error(`Release refused: ${plan.reason}`);
   if (plan.kind === 'noop') return plan;
   if (await github.release(plan.tag) || remoteRef(root, `refs/tags/${plan.tag}`)) {
     throw new Error(`${plan.tag} already exists; refusing to overwrite a tag or release`);
