@@ -160,6 +160,66 @@ test('live changes directory reads, and workflows are wired to change files', ()
   assert.ok(!fs.existsSync(path.join(ROOT, '.github', 'workflows', 'release-due.yml')));
 });
 
+// The step of a workflow named `name`: its text, and its `run:` script as the
+// shell receives it.
+function stepOf(y, name) {
+  const at = y.indexOf(`      - name: ${name}\n`);
+  if (at === -1) return null;
+  const rest = y.slice(at + 1);
+  const end = rest.search(/\n {6}- /);
+  const step = end === -1 ? rest : rest.slice(0, end + 1);
+  const script = (step.split('\n        run: |\n')[1] || '').split('\n').map((l) => l.slice(10)).join('\n');
+  return { at, step, script };
+}
+
+test('once it has published, release.yml asks the marketplace to pin the release, says so when it cannot, and fails when asking fails', () => {
+  const y = fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'release.yml'), 'utf8').replace(/\r\n/g, '\n');
+  const s = stepOf(y, 'Ask the marketplace to pin the release');
+  assert.ok(s, 'the step is gone');
+  const release = y.indexOf('      - name: Plan, validate cut, atomically push and publish\n        id: release\n');
+  assert.ok(release !== -1 && s.at > release, 'it does not come after the release, or the release step has no id');
+  assert.match(s.step, /\n {8}if: steps\.release\.outputs\.published == 'true'\n/);
+  assert.match(s.step, /GH_TOKEN: \$\{\{ secrets\.MARKETPLACE_DISPATCH_TOKEN \}\}/);
+  assert.match(s.step, /TAG: \$\{\{ steps\.release\.outputs\.tag \}\}/);
+  const tokens = [...y.matchAll(/GH_TOKEN: (.*)/g)].map((m) => m[1].trim());
+  assert.deepEqual(tokens, ['${{ github.token }}', '${{ secrets.MARKETPLACE_DISPATCH_TOKEN }}']);
+  const marketplace = (s.step.match(/MARKETPLACE: (\S+)/) || [])[1];
+  assert.equal(marketplace, 'ChibaYuki347/chibayuki-private-marketplace');
+
+  // Run the script as the runner does, with `gh` standing in as a function
+  // that records what it was asked and exits as it is told.
+  assert.equal(cp.spawnSync('bash', ['--version'], { encoding: 'utf8' }).status, 0, 'no bash to run the step with');
+  const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'dr-dispatch-'));
+  const unix = (p) => p.split(path.sep).join('/');
+  const run = (token, ghExit = 0) => {
+    const log = path.join(dir, 'gh.log');
+    const summary = path.join(dir, 'summary.md');
+    fs.writeFileSync(log, ''); fs.writeFileSync(summary, '');
+    const fake = 'gh() { printf \'%s\\n\' "$*" >> "$GH_LOG"; return "${GH_EXIT:-0}"; }\n';
+    const r = cp.spawnSync('bash', ['-c', fake + s.script], {
+      encoding: 'utf8',
+      env: { ...process.env, GH_TOKEN: token, MARKETPLACE: marketplace, TAG: 'v9.9.9', GH_LOG: unix(log), GH_EXIT: String(ghExit), GITHUB_STEP_SUMMARY: unix(summary) },
+    });
+    return { status: r.status, out: `${r.stdout}${r.stderr}`, calls: fs.readFileSync(log, 'utf8').trim(), summary: fs.readFileSync(summary, 'utf8') };
+  };
+  try {
+    const none = run('');
+    assert.equal(none.status, 0);
+    assert.match(none.out, /::warning::MARKETPLACE_DISPATCH_TOKEN is not set, so ChibaYuki347\/chibayuki-private-marketplace was not asked to pin v9\.9\.9/);
+    assert.match(none.summary, /was not asked to pin v9\.9\.9/);
+    assert.equal(none.calls, '');
+    const asked = run('t0ken');
+    assert.equal(asked.status, 0);
+    assert.equal(asked.calls, 'workflow run sync-plugin-refs.yml --repo ChibaYuki347/chibayuki-private-marketplace --ref main');
+    assert.match(asked.summary, /Asked ChibaYuki347\/chibayuki-private-marketplace to pin v9\.9\.9/);
+    const refused = run('t0ken', 1);
+    assert.notEqual(refused.status, 0, 'a dispatch that fails leaves the run green');
+    assert.doesNotMatch(refused.summary, /Asked/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('changes.js can run from the base checkout without repository-local requires', () => {
   const src = fs.readFileSync(path.join(__dirname, 'changes.js'), 'utf8');
   const requires = [...src.matchAll(/require\('([^']+)'\)/g)].map((match) => match[1]);

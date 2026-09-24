@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { test } = require('node:test');
 const { MANIFESTS, LOCK, releaseNotes, planRelease, applyPlan } = require('./plan-release');
-const { git, currentState, readAt, remoteRef, runRelease } = require('./release');
+const { git, currentState, readAt, remoteRef, runRelease, outputsOf } = require('./release');
 
 const ROOT = path.join(__dirname, '..');
 const WORK = path.join(require('node:os').tmpdir(), 'diagram-renderer-tests');
@@ -291,4 +291,13 @@ test('the release CLI refuses push events before any GitHub or git work', () => 
   });
   assert.equal(result.status, 1);
   assert.match(result.stderr, /schedule or workflow_dispatch/);
+});
+
+test('the workflow is told a version was published, and which, only when one was', () => {
+  assert.equal(outputsOf({ kind: 'released', tag: 'v0.6.1', commit: 'abc' }), 'published=true\ntag=v0.6.1\n');
+  assert.equal(outputsOf({ kind: 'recovered', tag: 'v0.6.1', commit: 'abc' }), 'published=true\ntag=v0.6.1\n');
+  assert.equal(outputsOf({ kind: 'noop', reason: 'no change files' }), 'published=false\ntag=\n');
+  assert.equal(outputsOf(null), 'published=false\ntag=\n');
+  const src = fs.readFileSync(path.join(__dirname, 'release.js'), 'utf8');
+  assert.match(src, /if \(process\.env\.GITHUB_OUTPUT\) fs\.appendFileSync\(process\.env\.GITHUB_OUTPUT, outputsOf\(result\)\);/);
 });
