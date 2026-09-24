@@ -192,7 +192,15 @@ async function runRelease({ root, github, version = '', allowMajor = false, date
   return { kind: 'released', tag: plan.tag, commit };
 }
 
-module.exports = { git, currentState, readAt, remoteRef, verifyCut, inspectPublication, runRelease };
+// What the workflow reads after the release: whether a version was published on
+// this run (a new cut, or a recovered one), and its tag, so the marketplace can
+// be asked to pin it. A day with nothing to release publishes nothing.
+function outputsOf(result) {
+  const published = !!result && (result.kind === 'released' || result.kind === 'recovered');
+  return `published=${published}\ntag=${published ? result.tag : ''}\n`;
+}
+
+module.exports = { git, currentState, readAt, remoteRef, verifyCut, inspectPublication, runRelease, outputsOf };
 
 if (require.main === module) {
   (async () => {
@@ -213,6 +221,7 @@ if (require.main === module) {
       },
     });
     console.log(JSON.stringify(result, null, 2));
+    if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process.env.GITHUB_OUTPUT, outputsOf(result));
     if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `Release result:\n\n\`\`\`json\n${JSON.stringify(result, null, 2)}\n\`\`\`\n`);
   })().catch((error) => {
     console.error(error.message);

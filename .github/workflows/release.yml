@@ -50,6 +50,7 @@ jobs:
           npm test
 
       - name: Plan, validate cut, atomically push and publish
+        id: release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_VERSION: ${{ github.event.inputs.version }}
@@ -64,3 +65,41 @@ jobs:
           git config --local "$release_extraheader_key" \
             "$release_auth_value"
           node tools/release.js
+
+      # The catalog pins each plugin to a release tag, so a release reaches nobody
+      # until chibayuki-private-marketplace moves its pin, and its sync-plugin-refs
+      # was meant to run after this job on a schedule of its own. GitHub starts
+      # both hours late and in no fixed order (in these repositories, two to three
+      # and a half hours), so a release could reach the catalog a day late. The
+      # release asks for the sync itself.
+      #
+      # Every run that gets this far asks, published or not. The sync is
+      # idempotent, since it pins whatever each plugin's latest release is, so
+      # asking on a day with nothing new costs one short run there. And a run
+      # retried after a failed request, which finds nothing left to publish,
+      # still asks again, where one that asked only on a publish would not.
+      #
+      # MARKETPLACE_DISPATCH_TOKEN is a fine-grained token scoped to the
+      # marketplace repository alone, with Actions: Read and write as its one
+      # permission. It cannot read or write that repository's contents, but it
+      # can manage Actions there (start, re-run, cancel and delete workflow
+      # runs), so it is this workflow's only secret. Without it the release still
+      # stands and the scheduled sync still pins it; the run says so when it
+      # published something. A token that is set and fails turns the run red: the
+      # catalog was not told, and someone has to see that.
+      - name: Ask the marketplace to pin the release
+        env:
+          GH_TOKEN: ${{ secrets.MARKETPLACE_DISPATCH_TOKEN }}
+          MARKETPLACE: ChibaYuki347/chibayuki-private-marketplace
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            if [ -n "${TAG:-}" ]; then
+              echo "::warning::MARKETPLACE_DISPATCH_TOKEN is not set, so $MARKETPLACE was not asked to pin $TAG. Its scheduled sync-plugin-refs will pin it."
+              echo "The marketplace was not asked to pin $TAG: MARKETPLACE_DISPATCH_TOKEN is not set. Its scheduled sync-plugin-refs will pin it." >> "$GITHUB_STEP_SUMMARY"
+            fi
+            exit 0
+          fi
+          gh workflow run sync-plugin-refs.yml --repo "$MARKETPLACE" --ref main
+          echo "Asked $MARKETPLACE to sync (sync-plugin-refs)${TAG:+ and pin $TAG}." >> "$GITHUB_STEP_SUMMARY"

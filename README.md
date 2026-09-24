@@ -246,18 +246,18 @@ While pre-1.0, minor bumps may contain breaking changes; see
 copilot plugin update diagram-renderer
 ```
 
-Releases are published automatically from user-visible `CHANGELOG.md`
-Unreleased notes on `main`: Added/Removed selects minor, other notes select
-patch, and empty notes do nothing. A major requires manual dispatch with the
-exact next major version. Do not hand-bump versions in feature PRs: automation
+Releases are cut automatically once a working day from the change files on
+`main` (`changes/*.md`, one per pull request; see [changes/README.md](changes/README.md)):
+`added`/`removed` select the minor, `changed`/`fixed` the patch, and a day with
+none releases nothing. A major requires manual dispatch with the exact next
+major version. Do not hand-bump versions in feature PRs: automation
 synchronizes both plugin manifests, `skills/diagram-renderer/package.json`,
 and any existing package lock when cutting the release.
 
-Open PRs that affect pending notes hold publication. A standing **Release due**
-issue tracks pending notes, holds and inspection failures. Safe retries reuse
-the verified release cut, never retag newer main. See
+Once a version is published, the release asks the marketplace to pin it. Safe
+retries reuse the verified release cut and never retag newer main. See
 [RELEASING.md](RELEASING.md) for major-release coordination, recovery,
-permissions and the separate marketplace update-PR delivery step.
+permissions and the marketplace step.
 
 This plugin declares its capabilities via the `provides` field in the
 manifest, so a consuming skill can discover the CLIs without hardcoding paths:
