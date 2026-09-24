@@ -126,7 +126,9 @@ the catalog a day late. The schedule stays, as the fallback.
 
 The step needs one secret, `MARKETPLACE_DISPATCH_TOKEN`: a fine-grained
 personal access token with access to `ChibaYuki347/chibayuki-private-marketplace`
-only, and **Actions: Read and write** as its only permission. Without it, the
+only, and **Actions: Read and write** as its only permission. It cannot read or
+write that repository's contents. It can manage Actions there, though: start,
+re-run, cancel and delete workflow runs. Treat a leak as that. Without it, the
 step leaves a warning and a line in the run's summary, and the release still
 stands. With it, a dispatch that fails turns the run red.
 

@@ -73,11 +73,14 @@ jobs:
       # and a half hours), so a release could reach the catalog a day late. The
       # release asks for the sync itself.
       #
-      # MARKETPLACE_DISPATCH_TOKEN is a fine-grained token with Actions: write on
-      # the marketplace repository and nothing else. Without it the release still
-      # stands and the scheduled sync still pins it; the run says so. A token that
-      # is set and fails turns the run red: the catalog was not told, and someone
-      # has to see that.
+      # MARKETPLACE_DISPATCH_TOKEN is a fine-grained token scoped to the
+      # marketplace repository alone, with Actions: write as its one permission.
+      # It cannot read or write that repository's contents, but it can manage
+      # Actions there (start, re-run, cancel and delete workflow runs), so it is
+      # this workflow's only secret. Without it the release still stands and the
+      # scheduled sync still pins it; the run says so. A token that is set and
+      # fails turns the run red: the catalog was not told, and someone has to
+      # see that.
       - name: Ask the marketplace to pin the release
         if: steps.release.outputs.published == 'true'
         env:

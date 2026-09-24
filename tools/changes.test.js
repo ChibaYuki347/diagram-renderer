@@ -183,6 +183,9 @@ test('once it has published, release.yml asks the marketplace to pin the release
   assert.match(s.step, /TAG: \$\{\{ steps\.release\.outputs\.tag \}\}/);
   const tokens = [...y.matchAll(/GH_TOKEN: (.*)/g)].map((m) => m[1].trim());
   assert.deepEqual(tokens, ['${{ github.token }}', '${{ secrets.MARKETPLACE_DISPATCH_TOKEN }}']);
+  const secrets = [...new Set([...y.matchAll(/\bsecrets\.([A-Za-z_][A-Za-z0-9_]*)/g)].map((m) => m[1]))];
+  assert.deepEqual(secrets, ['MARKETPLACE_DISPATCH_TOKEN'], 'release.yml holds another secret');
+  assert.equal([...y.matchAll(/github\.token/g)].length, 1, 'the job token is handed to more than the release step');
   const marketplace = (s.step.match(/MARKETPLACE: (\S+)/) || [])[1];
   assert.equal(marketplace, 'ChibaYuki347/chibayuki-private-marketplace');
 
