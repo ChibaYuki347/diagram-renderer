@@ -4,8 +4,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { readState, planRelease, applyPlan } = require('./plan-release');
+const { prFromSubject } = require('./changes');
 const { fromEnvironment } = require('./github');
-const { inFlight } = require('./in-flight');
 
 function git(root, ...args) {
   return execFileSync('git', args, {
@@ -14,18 +14,53 @@ function git(root, ...args) {
   }).trim();
 }
 
+function lines(text) {
+  return String(text || '').split('\n').map((line) => line.trim()).filter(Boolean);
+}
+
+function changeFilesAt(root, ref) {
+  return lines(git(root, 'ls-tree', '-r', '--name-only', ref, 'changes'))
+    .filter((file) => /^changes\/[^/]+\.md$/i.test(file) && file.toLowerCase() !== 'changes/readme.md');
+}
+
+function prAt(root, ref, file) {
+  try {
+    const subject = git(root, 'log', '--first-parent', '--diff-filter=A', '--format=%s', '-1', ref, '--', file);
+    return prFromSubject(subject);
+  } catch {
+    return null;
+  }
+}
+
 function readAt(root, ref) {
-  const files = new Set(git(root, 'ls-tree', '-r', '--name-only', ref).split('\n'));
-  return readState(file => git(root, 'show', `${ref}:${file}`), file => files.has(file));
+  const files = new Set(lines(git(root, 'ls-tree', '-r', '--name-only', ref)));
+  const changes = changeFilesAt(root, ref);
+  return readState(
+    (file) => git(root, 'show', `${ref}:${file}`),
+    (file) => files.has(file),
+    { list: () => changes, prOf: (file) => prAt(root, ref, file) },
+  );
+}
+
+function currentChangeFiles(root) {
+  const dir = path.join(root, 'changes');
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir)
+    .filter((name) => /\.md$/i.test(name) && name.toLowerCase() !== 'readme.md')
+    .map((name) => `changes/${name}`);
 }
 
 function currentState(root) {
-  return readState(file => fs.readFileSync(path.join(root, file), 'utf8'), file => fs.existsSync(path.join(root, file)));
+  return readState(
+    (file) => fs.readFileSync(path.join(root, ...file.split('/')), 'utf8'),
+    (file) => fs.existsSync(path.join(root, ...file.split('/'))),
+    { list: () => currentChangeFiles(root), prOf: (file) => prAt(root, 'HEAD', file) },
+  );
 }
 
 function remoteRef(root, ref) {
-  const lines = git(root, 'ls-remote', 'origin', ref, `${ref}^{}`).split('\n').filter(Boolean);
-  const refs = new Map(lines.map(line => {
+  const out = git(root, 'ls-remote', 'origin', ref, `${ref}^{}`);
+  const refs = new Map(lines(out).map((line) => {
     const [sha, name] = line.split(/\s+/);
     return [name, sha];
   }));
@@ -38,6 +73,15 @@ function commitMessage(version, base) {
   return `chore(release): v${version}\n\nRelease-Version: ${version}\nRelease-Base: ${base}`;
 }
 
+function objectExists(root, commit, file) {
+  try {
+    git(root, 'cat-file', '-e', `${commit}:${file}`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function verifyCut(root, commit, version) {
   const parents = git(root, 'rev-list', '--parents', '-n', '1', commit).split(' ').slice(1);
   if (parents.length !== 1) throw new Error('A release cut must have exactly one parent');
@@ -46,20 +90,26 @@ function verifyCut(root, commit, version) {
     throw new Error(`v${version} is not a verifiable automation cut; refusing recovery`);
   }
   const state = readAt(root, commit);
-  if (state.version !== version || state.changelog.hasNotes) throw new Error('Release cut has inconsistent versions or Unreleased notes');
-  const heading = state.changelog.next.title;
-  const date = heading.slice(-10);
+  if (state.version !== version || state.changelog.latest !== version) {
+    throw new Error('Release cut has inconsistent versions');
+  }
   const previous = readAt(root, base);
   const manual = Number(version.split('.')[0]) === Number(previous.version.split('.')[0]) + 1;
-  const plan = planRelease(previous, { date, version: manual ? version : '', allowMajor: manual });
+  const plan = planRelease(previous, { date: state.changelog.latestDate, version: manual ? version : '', allowMajor: manual });
   if (plan.kind !== 'release' || plan.version !== version) throw new Error('Release cut does not match its parent plan');
-  const actualFiles = git(root, 'diff-tree', '--no-commit-id', '--name-only', '-r', commit).split('\n').sort();
-  if (JSON.stringify(actualFiles) !== JSON.stringify(Object.keys(plan.changes).sort())) {
+  const actualFiles = lines(git(root, 'diff-tree', '--no-commit-id', '--name-only', '-r', commit)).sort();
+  const expectedFiles = Object.keys(plan.changes).sort();
+  if (JSON.stringify(actualFiles) !== JSON.stringify(expectedFiles)) {
     throw new Error('Release cut contains unexpected or missing files');
   }
   for (const [file, expected] of Object.entries(plan.changes)) {
-    if (git(root, 'show', `${commit}:${file}`).replace(/\r\n/g, '\n') !== expected.trim()) {
-      throw new Error(`Release cut content differs from its parent plan: ${file}`);
+    if (expected === null) {
+      if (objectExists(root, commit, file)) throw new Error(`Release cut should delete ${file}`);
+    } else {
+      const actual = git(root, 'show', `${commit}:${file}`).replace(/\r\n/g, '\n');
+      if (actual !== expected.replace(/\r\n/g, '\n').trim()) {
+        throw new Error(`Release cut content differs from its parent plan: ${file}`);
+      }
     }
   }
   return { ...plan, commit };
@@ -108,7 +158,7 @@ async function runRelease({ root, github, version = '', allowMajor = false, date
   const base = git(root, 'rev-parse', 'HEAD');
   if (remoteRef(root, 'refs/heads/main') !== base) throw new Error('main moved since checkout; retry on latest main');
   const state = currentState(root);
-  // Validate manual input even on retries and empty-note runs.
+  // Validate manual input even on retries and empty runs.
   const plan = planRelease(state, { version, allowMajor, date });
   const publication = await inspectPublication(root, github, state);
   if (publication.kind === 'recover') {
@@ -117,18 +167,14 @@ async function runRelease({ root, github, version = '', allowMajor = false, date
     return { kind: 'recovered', tag: publication.tag, commit: publication.commit };
   }
   if (plan.kind === 'noop') return plan;
-  const held = await inFlight(github, plan.notes);
-  if (held.length) return { kind: 'held', pulls: held };
   if (await github.release(plan.tag) || remoteRef(root, `refs/tags/${plan.tag}`)) {
     throw new Error(`${plan.tag} already exists; refusing to overwrite a tag or release`);
   }
   applyPlan(root, plan);
   await validate();
-  const heldAfterValidation = await inFlight(github, plan.notes);
-  if (heldAfterValidation.length) return { kind: 'held', pulls: heldAfterValidation };
   if (remoteRef(root, 'refs/heads/main') !== base) throw new Error('main moved during validation; retry without tagging it');
-  const tracked = Object.keys(plan.changes).filter(file => git(root, 'ls-files', '--', file));
-  git(root, 'add', '--', ...tracked);
+  const tracked = Object.keys(plan.changes).filter((file) => git(root, 'ls-files', '--', file));
+  if (tracked.length) git(root, 'add', '-A', '--', ...tracked);
   git(root, '-c', 'user.name=github-actions[bot]',
     '-c', 'user.email=41898282+github-actions[bot]@users.noreply.github.com',
     'commit', '-m', commitMessage(plan.version, base));
@@ -148,8 +194,8 @@ module.exports = { git, currentState, readAt, remoteRef, verifyCut, inspectPubli
 if (require.main === module) {
   (async () => {
     if (process.env.GITHUB_REF !== 'refs/heads/main' ||
-        !['push', 'workflow_dispatch'].includes(process.env.GITHUB_EVENT_NAME)) {
-      throw new Error('Release must run on main via push or workflow_dispatch');
+        !['schedule', 'workflow_dispatch'].includes(process.env.GITHUB_EVENT_NAME)) {
+      throw new Error('Release must run on main via schedule or workflow_dispatch');
     }
     const root = process.cwd();
     const result = await runRelease({
@@ -158,13 +204,14 @@ if (require.main === module) {
       version: process.env.RELEASE_VERSION || '',
       allowMajor: process.env.GITHUB_EVENT_NAME === 'workflow_dispatch',
       validate: () => {
-        execFileSync(process.execPath, ['--test', 'tools/plan-release.test.js', 'tools/release.test.js'], { cwd: root, stdio: 'inherit' });
+        execFileSync(process.execPath, ['--test', 'tools/plan-release.test.js', 'tools/release.test.js', 'tools/changes.test.js'], { cwd: root, stdio: 'inherit' });
         execFileSync(process.execPath, ['tools/plan-release.js', '--check'], { cwd: root, stdio: 'inherit' });
+        execFileSync(process.execPath, ['tools/changes.js', '--check'], { cwd: root, stdio: 'inherit' });
       },
     });
     console.log(JSON.stringify(result, null, 2));
     if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `Release result:\n\n\`\`\`json\n${JSON.stringify(result, null, 2)}\n\`\`\`\n`);
-  })().catch(error => {
+  })().catch((error) => {
     console.error(error.message);
     process.exitCode = 1;
   });

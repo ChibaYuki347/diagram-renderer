@@ -1,17 +1,55 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const cp = require('node:child_process');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { test } = require('node:test');
-const { MANIFESTS } = require('./plan-release');
+const { MANIFESTS, LOCK, releaseNotes, planRelease, applyPlan } = require('./plan-release');
 const { git, currentState, readAt, remoteRef, runRelease } = require('./release');
-const { evaluate } = require('./release-due');
 
-function setup(t, notes = '### Fixed\n- Release fixture fix.') {
-  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'diagram-release-test-'));
-  t.after(() => fs.rmSync(temp, { recursive: true, force: true }));
+const ROOT = path.join(__dirname, '..');
+const WORK = path.join(require('node:os').tmpdir(), 'diagram-renderer-tests');
+const DATE = '2026-09-25';
+const BASE_LOG = '# Changelog\n\nPreamble.\n\n## [0.6.0] — 2026-09-18\n\n### Added\n\n- Previous release.\n';
+
+function tmp(t, name) {
+  fs.mkdirSync(WORK, { recursive: true });
+  const dir = path.join(WORK, `${name}-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  fs.mkdirSync(dir, { recursive: true });
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  return dir;
+}
+
+function put(root, file, text) {
+  const full = path.join(root, ...file.split('/'));
+  fs.mkdirSync(path.dirname(full), { recursive: true });
+  fs.writeFileSync(full, text);
+}
+
+function changeFile(type, summary, breaking = false) {
+  return `---\ntype: ${type}\n${breaking ? 'breaking: true\n' : ''}---\n${summary}\n`;
+}
+
+function githubFixture() {
+  const releases = new Map([['v0.6.0', { tag_name: 'v0.6.0', body: 'Legacy release', draft: false, prerelease: false }]]);
+  const writes = [];
+  return {
+    repository: 'owner/repo', releases, writes,
+    release: async (tag) => releases.get(tag) || null,
+    request: async (method, endpoint, body) => {
+      assert.equal(method, 'POST');
+      assert.equal(endpoint, '/releases');
+      assert.ok(!releases.has(body.tag_name), 'must never overwrite a release');
+      releases.set(body.tag_name, body);
+      writes.push(body);
+      return body;
+    },
+  };
+}
+
+function setup(t, { changes = true } = {}) {
+  const temp = tmp(t, 'release');
   const remote = path.join(temp, 'origin.git');
   const root = path.join(temp, 'work');
   fs.mkdirSync(root);
@@ -21,128 +59,101 @@ function setup(t, notes = '### Fixed\n- Release fixture fix.') {
   git(root, 'config', 'user.email', 'test@example.invalid');
   git(root, 'config', 'core.autocrlf', 'false');
   git(root, 'remote', 'add', 'origin', remote);
-  for (const file of MANIFESTS) {
-    fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
-    fs.writeFileSync(path.join(root, file), `${JSON.stringify({ name: 'fixture', version: '0.4.0' }, null, 2)}\n`);
-  }
-  const previous = '## [0.4.0] - 2026-09-06\n\n### Added\n- Historical notes.\n';
-  fs.writeFileSync(path.join(root, 'CHANGELOG.md'), `# Changelog\n\n## [Unreleased]\n\n${previous}`);
+  const manifest = `${JSON.stringify({ name: 'fixture', version: '0.6.0', private: true }, null, 2)}\n`;
+  for (const file of MANIFESTS) put(root, file, manifest);
+  put(root, 'CHANGELOG.md', BASE_LOG);
+  put(root, 'changes/README.md', '# how\n');
   git(root, 'add', '.');
   git(root, 'commit', '-m', 'Initial fixture');
-  git(root, 'tag', 'v0.4.0');
-  git(root, 'push', 'origin', 'main', 'v0.4.0');
-  if (notes) {
-    fs.writeFileSync(path.join(root, 'CHANGELOG.md'), `# Changelog\n\n## [Unreleased]\n\n${notes}\n\n${previous}`);
+  git(root, 'tag', 'v0.6.0');
+  git(root, 'push', 'origin', 'main', 'v0.6.0');
+
+  if (changes) {
+    git(root, 'checkout', '-q', '-b', 'feat-a');
+    put(root, 'changes/feat-a.md', changeFile('added', 'A new layout.'));
     git(root, 'add', '.');
-    git(root, 'commit', '-m', 'Add unreleased notes');
+    git(root, 'commit', '-m', 'add a change file');
+    git(root, 'checkout', '-q', 'main');
+    git(root, 'merge', '--no-ff', '-m', 'feat: a new layout (#99) (#12)', 'feat-a');
+    put(root, 'changes/fix-b.md', changeFile('fixed', 'Correct an offset.'));
+    git(root, 'add', '.');
+    git(root, 'commit', '-m', 'fix: an offset (#15)');
     git(root, 'push', 'origin', 'main');
   }
-  const releases = new Map([['v0.4.0', { tag_name: 'v0.4.0', body: 'Legacy full changelog', draft: false, prerelease: false }]]);
-  const writes = [];
-  const github = {
-    releases, writes, pages: async () => [],
-    release: async tag => releases.get(tag) || null,
-    file: async () => '## [Unreleased]\n\n### Added\n- Pending work from the open branch.\n\n## [0.4.0] - 2026-01-01\n',
-    request: async (method, endpoint, body) => {
-      assert.equal(method, 'POST');
-      assert.equal(endpoint, '/releases');
-      assert.ok(!releases.has(body.tag_name), 'must never overwrite an existing release');
-      releases.set(body.tag_name, body);
-      writes.push(body);
-      return body;
-    },
-  };
-  return { root, remote, temp, github, date: '2026-09-12' };
+  return { root, remote, temp, github: githubFixture(), date: DATE };
 }
 
-test('real git cut atomically pushes three manifests, changelog and exact tag; rerun is a no-op', async t => {
+test('real git cut publishes notes with PR numbers, deletes change files, and reruns as noop', async (t) => {
   const ctx = setup(t);
   const result = await runRelease(ctx);
   assert.equal(result.kind, 'released');
-  assert.equal(result.tag, 'v0.4.1');
+  assert.equal(result.tag, 'v0.7.0');
   assert.equal(remoteRef(ctx.root, 'refs/heads/main'), result.commit);
-  assert.equal(remoteRef(ctx.root, 'refs/tags/v0.4.1'), result.commit);
-  assert.equal(currentState(ctx.root).version, '0.4.1');
-  assert.equal(ctx.github.writes[0].body, '### Fixed\n- Release fixture fix.');
-  assert.equal(ctx.github.writes[0].target_commitish, result.commit);
-  assert.equal((await runRelease(ctx)).kind, 'noop');
+  assert.equal(remoteRef(ctx.root, 'refs/tags/v0.7.0'), result.commit);
+  const state = currentState(ctx.root);
+  assert.equal(state.version, '0.7.0');
+  assert.deepEqual(state.changes, []);
+  const notes = '### Added\n\n- A new layout. (#12)\n\n### Fixed\n\n- Correct an offset. (#15)';
+  assert.equal(ctx.github.writes[0].body, notes);
+  assert.equal(releaseNotes(fs.readFileSync(path.join(ctx.root, 'CHANGELOG.md'), 'utf8'), '0.7.0'), notes);
+  assert.deepEqual(fs.readdirSync(path.join(ctx.root, 'changes')), ['README.md']);
+  const again = await runRelease(ctx);
+  assert.equal(again.kind, 'noop');
   assert.equal(ctx.github.writes.length, 1);
 });
 
-test('empty notes do not create commits, tags or releases', async t => {
-  const ctx = setup(t, '');
-  const before = git(ctx.root, 'rev-parse', 'HEAD');
-  assert.equal((await runRelease(ctx)).kind, 'noop');
-  assert.equal(git(ctx.root, 'rev-parse', 'HEAD'), before);
-  assert.equal(ctx.github.writes.length, 0);
-});
-
-test('open PRs hold publication; API failures and validation failures leave remote untouched', async t => {
-  const ctx = setup(t);
-  const before = remoteRef(ctx.root, 'refs/heads/main');
-  ctx.github.pages = async endpoint => endpoint.startsWith('/pulls?')
-    ? [{ number: 7, title: 'Pending', head: { sha: 'a'.repeat(40) } }]
-    : [{ filename: 'CHANGELOG.md', status: 'modified' }];
-  assert.equal((await runRelease(ctx)).kind, 'held');
-  ctx.github.pages = async () => { throw new Error('API failed'); };
-  await assert.rejects(runRelease(ctx), /API failed/);
-  ctx.github.pages = async () => [];
-  await assert.rejects(runRelease({ ...ctx, validate: () => { throw new Error('Cut validation failed'); } }), /Cut validation failed/);
-  assert.equal(remoteRef(ctx.root, 'refs/heads/main'), before);
-  assert.equal(remoteRef(ctx.root, 'refs/tags/v0.4.1'), undefined);
-  assert.equal(ctx.github.writes.length, 0);
-});
-
-test('release POST failure recovers exact tagged cut after main advances, without releasing new notes', async t => {
+test('release POST failure recovers the tagged cut after main advances with a new change file', async (t) => {
   const ctx = setup(t);
   const request = ctx.github.request;
   ctx.github.request = async () => { throw new Error('POST unavailable'); };
   await assert.rejects(runRelease(ctx), /POST unavailable/);
-  const cut = remoteRef(ctx.root, 'refs/tags/v0.4.1');
+  const cut = remoteRef(ctx.root, 'refs/tags/v0.7.0');
   assert.ok(cut);
-  const changelog = path.join(ctx.root, 'CHANGELOG.md');
-  fs.writeFileSync(changelog, fs.readFileSync(changelog, 'utf8').replace('## [Unreleased]', '## [Unreleased]\n\n### Added\n- Future feature.'));
-  git(ctx.root, 'add', 'CHANGELOG.md');
-  git(ctx.root, 'commit', '-m', 'Future work');
+  put(ctx.root, 'changes/future.md', changeFile('fixed', 'Future fix.'));
+  git(ctx.root, 'add', '.');
+  git(ctx.root, 'commit', '-m', 'fix: future (#22)');
   git(ctx.root, 'push', 'origin', 'main');
   ctx.github.request = request;
   const result = await runRelease(ctx);
   assert.equal(result.kind, 'recovered');
   assert.equal(result.commit, cut);
-  assert.match(ctx.github.writes[0].body, /fixture fix/);
-  assert.doesNotMatch(ctx.github.writes[0].body, /Future|Historical/);
-  assert.equal(currentState(ctx.root).changelog.hasNotes, true);
-  assert.equal(remoteRef(ctx.root, 'refs/tags/v0.5.0'), undefined);
+  assert.match(ctx.github.writes[0].body, /A new layout/);
+  assert.doesNotMatch(ctx.github.writes[0].body, /Future fix/);
+  assert.equal(currentState(ctx.root).changes.length, 1);
+  assert.equal(remoteRef(ctx.root, 'refs/tags/v0.7.1'), undefined);
 });
 
-test('a successful but response-lost POST is idempotent on rerun', async t => {
+test('response-lost publication is idempotent on rerun', async (t) => {
   const ctx = setup(t);
   const request = ctx.github.request;
   ctx.github.request = async (...args) => { await request(...args); throw new Error('response lost'); };
   await assert.rejects(runRelease(ctx), /response lost/);
-  assert.equal((await runRelease(ctx)).kind, 'noop');
+  const again = await runRelease(ctx);
+  assert.equal(again.kind, 'noop');
   assert.equal(ctx.github.writes.length, 1);
 });
 
-test('conflicting tags or releases are never overwritten', async t => {
-  const ctx = setup(t);
-  git(ctx.root, 'tag', 'v0.4.1');
-  git(ctx.root, 'push', 'origin', 'v0.4.1');
-  const before = remoteRef(ctx.root, 'refs/tags/v0.4.1');
-  await assert.rejects(runRelease(ctx), /already exists/);
-  assert.equal(remoteRef(ctx.root, 'refs/tags/v0.4.1'), before);
-  assert.equal(ctx.github.writes.length, 0);
+test('conflicting tag or release is refused without publishing', async (t) => {
+  const tagConflict = setup(t);
+  git(tagConflict.root, 'tag', 'v0.7.0');
+  git(tagConflict.root, 'push', 'origin', 'v0.7.0');
+  await assert.rejects(runRelease(tagConflict), /already exists/);
+  assert.equal(tagConflict.github.writes.length, 0);
+
+  const releaseConflict = setup(t);
+  releaseConflict.github.releases.set('v0.7.0', { tag_name: 'v0.7.0', body: 'wrong', draft: false, prerelease: false });
+  await assert.rejects(runRelease(releaseConflict), /already exists/);
+  assert.equal(releaseConflict.github.writes.length, 0);
 });
 
-test('release notes changed after publication cause an explicit conflict', async t => {
+test('published notes changed externally cause an explicit conflict', async (t) => {
   const ctx = setup(t);
   await runRelease(ctx);
-  ctx.github.releases.get('v0.4.1').body = 'Changed externally';
+  ctx.github.releases.get('v0.7.0').body = 'Changed externally';
   await assert.rejects(runRelease(ctx), /notes differ/);
-  assert.equal(ctx.github.writes.length, 1);
 });
 
-test('concurrent main push during validation aborts without tagging the newer main', async t => {
+test('concurrent main push during validation aborts without tagging the newer main', async (t) => {
   const ctx = setup(t);
   const other = path.join(ctx.temp, 'other');
   git(ctx.temp, 'clone', '-b', 'main', ctx.remote, other);
@@ -151,90 +162,94 @@ test('concurrent main push during validation aborts without tagging the newer ma
   await assert.rejects(runRelease({
     ...ctx,
     validate: () => {
-      fs.writeFileSync(path.join(other, 'concurrent.txt'), 'Concurrent push\n');
+      put(other, 'concurrent.txt', 'Concurrent push\n');
       git(other, 'add', '.');
       git(other, 'commit', '-m', 'Concurrent push');
       git(other, 'push', 'origin', 'main');
     },
   }), /main moved/);
   assert.equal(remoteRef(ctx.root, 'refs/heads/main'), git(other, 'rev-parse', 'HEAD'));
-  assert.equal(remoteRef(ctx.root, 'refs/tags/v0.4.1'), undefined);
-});
-
-test('atomic push rejection leaves both remote refs unchanged', async t => {
-  const ctx = setup(t);
-  const before = remoteRef(ctx.root, 'refs/heads/main');
-  // Reject only the tag: without --atomic the main commit would still land.
-  fs.writeFileSync(path.join(ctx.remote, 'hooks', 'update'), '#!/bin/sh\ncase "$1" in refs/tags/*) exit 1;; esac\nexit 0\n', { mode: 0o755 });
-  await assert.rejects(runRelease(ctx), /push/);
-  assert.equal(remoteRef(ctx.root, 'refs/heads/main'), before);
-  assert.equal(remoteRef(ctx.root, 'refs/tags/v0.4.1'), undefined);
+  assert.equal(remoteRef(ctx.root, 'refs/tags/v0.7.0'), undefined);
   assert.equal(ctx.github.writes.length, 0);
 });
 
-test('explicit major, tracked lock synchronization, and release-due recovery status', async t => {
-  const ctx = setup(t, '### Removed\n- Remove an old contract.');
-  const lock = 'skills/diagram-renderer/package-lock.json';
-  fs.writeFileSync(path.join(ctx.root, lock), '{"version":"0.4.0","lockfileVersion":3,"packages":{"":{"version":"0.4.0"}}}\n');
-  git(ctx.root, 'add', lock);
+test('atomic push rejection leaves both remote refs unchanged', async (t) => {
+  const ctx = setup(t);
+  const before = remoteRef(ctx.root, 'refs/heads/main');
+  put(ctx.remote, 'hooks/update', '#!/bin/sh\ncase "$1" in refs/tags/*) exit 1;; esac\nexit 0\n');
+  fs.chmodSync(path.join(ctx.remote, 'hooks', 'update'), 0o755);
+  await assert.rejects(runRelease(ctx), /push/);
+  assert.equal(remoteRef(ctx.root, 'refs/heads/main'), before);
+  assert.equal(remoteRef(ctx.root, 'refs/tags/v0.7.0'), undefined);
+  assert.equal(ctx.github.writes.length, 0);
+});
+
+test('explicit major synchronizes a tracked lock', async (t) => {
+  const ctx = setup(t);
+  put(ctx.root, LOCK, '{"version":"0.6.0","lockfileVersion":3,"packages":{"":{"version":"0.6.0"}}}\n');
+  git(ctx.root, 'add', LOCK);
   git(ctx.root, 'commit', '-m', 'Track lock fixture');
   git(ctx.root, 'push', 'origin', 'main');
   const result = await runRelease({ ...ctx, version: '1.0.0', allowMajor: true });
   assert.equal(result.tag, 'v1.0.0');
-  assert.equal(readAt(ctx.root, result.commit).documents[lock].packages[''].version, '1.0.0');
-  assert.equal((await evaluate(ctx.root, ctx.github)).kind, 'published');
-  ctx.github.releases.delete('v1.0.0');
-  assert.equal((await evaluate(ctx.root, ctx.github)).kind, 'recovery');
+  assert.equal(readAt(ctx.root, result.commit).documents[LOCK].packages[''].version, '1.0.0');
 });
 
-test('unverified historical tag without a release fails instead of retagging current main', async t => {
+test('recovery rejects a cut with unexpected files instead of publishing it', async (t) => {
   const ctx = setup(t);
-  ctx.github.releases.delete('v0.4.0');
+  const base = git(ctx.root, 'rev-parse', 'HEAD');
+  const plan = planRelease(currentState(ctx.root), { date: ctx.date });
+  applyPlan(ctx.root, plan);
+  put(ctx.root, 'unexpected.txt', 'Not part of a release cut\n');
+  git(ctx.root, 'add', '.');
+  git(ctx.root, 'commit', '-m', `chore(release): v0.7.0\n\nRelease-Version: 0.7.0\nRelease-Base: ${base}`);
+  git(ctx.root, 'tag', 'v0.7.0');
+  git(ctx.root, 'push', 'origin', 'main', 'v0.7.0');
+  await assert.rejects(runRelease(ctx), /unexpected or missing files/);
+  assert.equal(ctx.github.writes.length, 0);
+});
+
+test('an ignored local lock is updated locally but never introduced into the cut', async (t) => {
+  const ctx = setup(t);
+  put(ctx.root, '.gitignore', 'package-lock.json\n');
+  git(ctx.root, 'add', '.gitignore');
+  git(ctx.root, 'commit', '-m', 'Ignore generated lock');
+  git(ctx.root, 'push', 'origin', 'main');
+  put(ctx.root, LOCK, '{"version":"0.6.0","lockfileVersion":3,"packages":{"":{"version":"0.6.0"}}}\n');
+  const result = await runRelease(ctx);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(ctx.root, ...LOCK.split('/')), 'utf8')).version, '0.7.0');
+  assert.equal(git(ctx.root, 'ls-tree', '--name-only', result.commit, '--', LOCK), '');
+  assert.equal((await runRelease(ctx)).kind, 'noop');
+});
+
+test('unverified historical tag without a release fails instead of retagging current main', async (t) => {
+  const ctx = setup(t, { changes: false });
+  ctx.github.releases.delete('v0.6.0');
   await assert.rejects(runRelease(ctx), /not an automation cut/);
   assert.equal(ctx.github.writes.length, 0);
 });
 
-test('a PR opened during validation holds the cut without changing remote refs', async t => {
+test('recovery rejects a cut whose diff mentions a change file but leaves it present', async (t) => {
   const ctx = setup(t);
-  const before = remoteRef(ctx.root, 'refs/heads/main');
-  const result = await runRelease({
-    ...ctx,
-    validate: () => {
-      ctx.github.pages = async endpoint => endpoint.startsWith('/pulls?')
-        ? [{ number: 8, title: 'New PR', head: { sha: 'b'.repeat(40) } }]
-        : [{ filename: 'CHANGELOG.md', status: 'modified' }];
-    },
-  });
-  assert.equal(result.kind, 'held');
-  assert.deepEqual(result.pulls.map(pull => pull.number), [8]);
-  assert.equal(remoteRef(ctx.root, 'refs/heads/main'), before);
-  assert.equal(remoteRef(ctx.root, 'refs/tags/v0.4.1'), undefined);
-});
-
-test('an ignored generated lock is updated locally but is never introduced into the cut', async t => {
-  const ctx = setup(t);
-  fs.writeFileSync(path.join(ctx.root, '.gitignore'), 'package-lock.json\n');
-  git(ctx.root, 'add', '.gitignore');
-  git(ctx.root, 'commit', '-m', 'Ignore generated lock');
-  git(ctx.root, 'push', 'origin', 'main');
-  const lock = 'skills/diagram-renderer/package-lock.json';
-  fs.writeFileSync(path.join(ctx.root, lock), '{"version":"0.4.0","lockfileVersion":3,"packages":{"":{"version":"0.4.0"}}}\n');
-  const result = await runRelease(ctx);
-  assert.equal(currentState(ctx.root).documents[lock].version, '0.4.1');
-  assert.equal(git(ctx.root, 'ls-tree', '--name-only', result.commit, '--', lock), '');
-  assert.equal((await runRelease(ctx)).kind, 'noop');
-});
-
-test('recovery rejects a cut with unexpected files instead of publishing it', async t => {
-  const ctx = setup(t);
-  const { planRelease, applyPlan } = require('./plan-release');
   const base = git(ctx.root, 'rev-parse', 'HEAD');
-  applyPlan(ctx.root, planRelease(currentState(ctx.root), { date: ctx.date }));
-  fs.writeFileSync(path.join(ctx.root, 'unexpected.txt'), 'Not part of a release cut\n');
+  const original = fs.readFileSync(path.join(ctx.root, 'changes', 'feat-a.md'), 'utf8');
+  const plan = planRelease(currentState(ctx.root), { date: ctx.date });
+  applyPlan(ctx.root, plan);
+  put(ctx.root, 'changes/feat-a.md', `${original}\n`);
   git(ctx.root, 'add', '.');
-  git(ctx.root, 'commit', '-m', `chore(release): v0.4.1\n\nRelease-Version: 0.4.1\nRelease-Base: ${base}`);
-  git(ctx.root, 'tag', 'v0.4.1');
-  git(ctx.root, 'push', 'origin', 'main', 'v0.4.1');
-  await assert.rejects(runRelease(ctx), /unexpected or missing files/);
+  git(ctx.root, 'commit', '-m', `chore(release): v0.7.0\n\nRelease-Version: 0.7.0\nRelease-Base: ${base}`);
+  git(ctx.root, 'tag', 'v0.7.0');
+  git(ctx.root, 'push', 'origin', 'main', 'v0.7.0');
+  await assert.rejects(runRelease(ctx), /should delete changes\/feat-a\.md/);
   assert.equal(ctx.github.writes.length, 0);
+});
+
+test('the release CLI refuses push events before any GitHub or git work', () => {
+  const result = cp.spawnSync(process.execPath, [path.join(__dirname, 'release.js')], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    env: { ...process.env, GITHUB_REF: 'refs/heads/main', GITHUB_EVENT_NAME: 'push' },
+  });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /schedule or workflow_dispatch/);
 });

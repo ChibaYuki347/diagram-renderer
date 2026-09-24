@@ -1,0 +1,49 @@
+name: changes
+
+# Every pull request says what it changed in one file of its own,
+# `changes/<name>.md`, or carries the `skip-changelog` label because it changes
+# nothing a user of the plugin sees (CHARTER §5.4, changes/README.md). The daily
+# release writes CHANGELOG.md from those files, so this is where a missing,
+# doubled or unreadable one is caught: here, on the pull request, rather than at
+# 05:30 when nobody is watching.
+#
+# It also fails a pull request that edits CHANGELOG.md below its preamble. That
+# file is the release's to write, and a released section is never edited.
+#
+# `labeled` and `unlabeled` are among the triggers because adding the label is how
+# a pull request answers this check.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+
+jobs:
+  change-file:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # The pull request is judged by the checker on its base, not by its own copy:
+      # a pull request that edited tools/changes.js could otherwise pass itself.
+      # The one that introduces the checker has no base copy to run, and is judged
+      # by its own.
+      - name: A change file, or the skip-changelog label
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          CHANGES_ROOT: ${{ github.workspace }}
+        run: |
+          if git cat-file -e "$BASE_SHA:tools/changes.js" 2>/dev/null; then
+            git show "$BASE_SHA:tools/changes.js" > "$RUNNER_TEMP/changes.js"
+          else
+            cp tools/changes.js "$RUNNER_TEMP/changes.js"
+          fi
+          node "$RUNNER_TEMP/changes.js" --check-pr

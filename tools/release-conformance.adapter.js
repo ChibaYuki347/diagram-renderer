@@ -2,62 +2,35 @@
 
 // Drives this repository's own release planner from the shared conformance cases
 // in tools/release-conformance.js. Nothing here decides anything: the adapter
-// translates a case into the shape plan-release.js and in-flight.js already take,
-// and translates the answer back. A rule that only holds inside the adapter would
-// be a rule this repository does not actually run.
+// translates a case into the state plan-release.js already takes, and translates
+// the answer back. A rule that only holds inside the adapter would be a rule this
+// repository does not actually run.
+//
+// `openPulls` is handed over and deliberately not passed on: the planner takes no
+// such input, which is how "a release never waits for an open pull request" holds
+// here -- there is nothing for it to wait on.
 
-const { parseChangelog, planRelease } = require('./plan-release');
-const { inFlight } = require('./in-flight');
+const { planRelease } = require('./plan-release');
 
-// in-flight.js asks a GitHub client for open pull requests, their file lists and
-// each branch's own CHANGELOG.md. The suite already knows all three, so this
-// stands in for the client without a network call -- the rule being exercised is
-// the one in in-flight.js, unchanged.
-function client(openPulls) {
-  const sha = number => String(number).padStart(40, '0');
-  return {
-    async pages(route) {
-      if (/^\/pulls\?/.test(route)) {
-        return openPulls.map(pull => ({ number: pull.number, title: pull.title, head: { sha: sha(pull.number) } }));
-      }
-      const match = /^\/pulls\/(\d+)\/files/.exec(route);
-      if (match) {
-        const pull = openPulls.find(p => p.number === Number(match[1]));
-        return pull.files.map(filename => ({ filename, status: 'modified' }));
-      }
-      throw new Error(`The conformance adapter does not stub ${route}`);
+const CHANGELOG = '# Changelog\n\n## [0.0.1] — 2026-01-01\n\n### Added\n\n- The first release.\n';
+
+function plan({ version, date, changes }) {
+  const state = {
+    version,
+    documents: {},
+    changelog: {
+      text: CHANGELOG,
+      eol: '\n',
+      latest: '0.0.1',
+      latestDate: '2026-01-01',
+      insertIndex: CHANGELOG.indexOf('## [0.0.1]'),
+      releases: [{ version: '0.0.1', date: '2026-01-01' }],
     },
-    async file(path, ref) {
-      if (path !== 'CHANGELOG.md') throw new Error(`The conformance adapter does not stub ${path}`);
-      const pull = openPulls.find(p => sha(p.number) === ref);
-      if (!pull) throw new Error(`The conformance adapter has no branch at ${ref}`);
-      return pull.changelog;
-    },
+    changes,
+    prs: {},
   };
-}
-
-// plan-release.js reads its version from the manifests it is given. The cases are
-// about the changelog, so the manifests are supplied at the case's version and the
-// changelog is parsed by this repository's own parser.
-function state(changelog, version) {
-  return { version, documents: {}, changelog: parseChangelog(changelog) };
-}
-
-async function plan({ changelog, version, date, openPulls }) {
-  if (Array.isArray(openPulls)) {
-    const notes = parseChangelog(changelog).notes;
-    const held = await inFlight(client(openPulls), notes);
-    if (held.length) return { release: false, held: true };
-  }
-
-  const result = planRelease(state(changelog, version), { date });
-
-  return {
-    release: result.kind === 'release',
-    bump: result.bump,
-    version: result.version,
-    held: false,
-  };
+  const result = planRelease(state, { date });
+  return { release: result.kind === 'release', bump: result.bump, version: result.version };
 }
 
 module.exports = { plan };

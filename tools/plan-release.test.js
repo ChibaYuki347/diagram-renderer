@@ -1,176 +1,190 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const { test } = require('node:test');
-const { MANIFESTS, LOCK, versionParts, parseChangelog, readState, planRelease } = require('./plan-release');
-const { GitHub } = require('./github');
-const { inFlight } = require('./in-flight');
-const { MARKER, runDue } = require('./release-due');
+const {
+  MANIFESTS, LOCK, versionParts, parseChangelog, readState, planRelease, applyPlan, renderSection, releaseNotes, nextVersion,
+} = require('./plan-release');
+const { problemsOf } = require('./changes');
 
-function fixture(notes = '### Fixed\n- Fix rendering.') {
-  const files = Object.fromEntries(MANIFESTS.map(file => [file, JSON.stringify({ name: 'diagram-renderer', version: '0.4.0', private: true })]));
-  files['CHANGELOG.md'] = `# Changelog\n\n## [Unreleased]\n\n${notes}\n\n## [0.4.0] - 2026-09-06\n\n### Added\n- Previous release.\n`;
-  return files;
+const ROOT = path.join(__dirname, '..');
+const WORK = path.join(require('node:os').tmpdir(), 'diagram-renderer-tests');
+const DATE = '2026-09-25';
+const LOG = '# Changelog\n\nPreamble.\n\n## [0.6.0] — 2026-09-18\n\n### Added\n\n- Previous release.\n';
+
+function tmp(t, name) {
+  fs.mkdirSync(WORK, { recursive: true });
+  const dir = path.join(WORK, `${name}-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  fs.mkdirSync(dir, { recursive: true });
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  return dir;
 }
 
-function state(files) {
-  return readState(file => files[file], file => Object.hasOwn(files, file));
+function change(type, summary, extra = {}) {
+  return { file: `changes/${summary.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}.md`, type, breaking: false, summary, ...extra };
 }
 
-test('Added/Removed with content choose minor; all other notes choose patch', () => {
-  for (const category of ['Added', 'Removed', 'Fixed', 'Changed', 'Security', 'Notes']) {
-    const plan = planRelease(state(fixture(`### ${category}\n- A visible change.`)));
-    assert.equal(plan.version, ['Added', 'Removed'].includes(category) ? '0.5.0' : '0.4.1');
+function changeFile(type, summary, breaking = false) {
+  return `---\ntype: ${type}\n${breaking ? 'breaking: true\n' : ''}---\n${summary}\n`;
+}
+
+function files({ version = '0.6.0', changelog = LOG, changes = {}, lock = false } = {}) {
+  const out = Object.fromEntries(MANIFESTS.map((file) => [file, `${JSON.stringify({ name: 'diagram-renderer', version, private: true }, null, 2)}\n`]));
+  out['CHANGELOG.md'] = changelog;
+  out['changes/README.md'] = '# how\n';
+  for (const [file, text] of Object.entries(changes)) out[file] = text;
+  if (lock) {
+    out[LOCK] = `${JSON.stringify({ version, lockfileVersion: 3, packages: { '': { version }, dep: { version: '9.9.9' } } }, null, 2)}\n`;
   }
-  assert.equal(planRelease(state(fixture('### Added\n<!-- later -->\n### Fixed\n- A fix.'))).version, '0.4.1');
+  return out;
+}
+
+function state(map, prs = {}) {
+  return readState(
+    (file) => map[file],
+    (file) => Object.hasOwn(map, file),
+    { list: () => Object.keys(map).filter((file) => file.startsWith('changes/')), prOf: (file) => prs[file] || null },
+  );
+}
+
+test('bump by type: added and removed are minor; changed and fixed are patch; largest wins', () => {
+  for (const [type, want, next] of [
+    ['added', 'minor', '0.7.0'],
+    ['removed', 'minor', '0.7.0'],
+    ['changed', 'patch', '0.6.1'],
+    ['fixed', 'patch', '0.6.1'],
+  ]) {
+    const plan = planRelease(state(files({ changes: { 'changes/x.md': changeFile(type, `${type} thing.`) } })), { date: DATE });
+    assert.equal(plan.bump, want);
+    assert.equal(plan.version, next);
+  }
+  const mixed = planRelease(state(files({ changes: { 'changes/a.md': changeFile('fixed', 'Fix.'), 'changes/b.md': changeFile('added', 'Add.') } })), { date: DATE });
+  assert.equal(mixed.bump, 'minor');
+  assert.equal(mixed.version, '0.7.0');
 });
 
-test('empty, headings-only and comment-only Unreleased are no-ops, including manual major', () => {
-  for (const notes of ['', '\n ', '<!-- todo -->', '### Added\n\n### Fixed\n<!-- todo\nlater -->']) {
-    assert.equal(planRelease(state(fixture(notes))).kind, 'noop');
-    assert.equal(planRelease(state(fixture(notes)), { version: '1.0.0', allowMajor: true }).kind, 'noop');
-  }
+test('no change files are a noop, including a valid manual major', () => {
+  assert.equal(planRelease(state(files()), { date: DATE }).kind, 'noop');
+  assert.equal(planRelease(state(files()), { date: DATE, version: '1.0.0', allowMajor: true }).kind, 'noop');
 });
 
-test('only explicit manual exact next-major is permitted', () => {
-  const input = state(fixture());
-  assert.equal(planRelease(input, { version: '1.0.0', allowMajor: true }).bump, 'major');
-  for (const version of ['major', 'v1.0.0', '1.0.0-beta.1', '01.0.0', '0.4.1', '0.5.0', '2.0.0', '1.1.0', '1.0.0\nx', '$(id)']) {
-    assert.throws(() => planRelease(input, { version, allowMajor: true }));
+test('manual version validation remains exact next-major only', () => {
+  const input = state(files({ changes: { 'changes/break.md': changeFile('changed', 'Break.', true) } }));
+  assert.equal(planRelease(input, { date: DATE, version: '1.0.0', allowMajor: true }).bump, 'major');
+  for (const version of ['major', 'v1.0.0', '1.0.0-beta.1', '01.0.0', '0.6.1', '0.7.0', '2.0.0', '1.1.0', '1.0.0\nx']) {
+    assert.throws(() => planRelease(input, { date: DATE, version, allowMajor: true }), /SemVer|manual next-major/);
   }
-  assert.throws(() => planRelease(input, { version: '1.0.0' }), /manual/);
-  assert.throws(() => planRelease(state(fixture('')), { version: '0.5.0', allowMajor: true }));
+  assert.throws(() => planRelease(input, { date: DATE, version: '1.0.0' }), /manual next-major/);
   assert.throws(() => versionParts('99999999999999999999.0.0'), /safe integer/);
 });
 
-test('cut synchronizes all versions and optional lock root, preserves dependencies and scopes notes', () => {
-  const files = fixture();
-  files[LOCK] = JSON.stringify({
-    version: '0.4.0', lockfileVersion: 3,
-    packages: { '': { version: '0.4.0' }, 'node_modules/example': { version: '9.2.1' } },
-  });
-  const plan = planRelease(state(files), { date: '2026-09-12' });
-  for (const file of [...MANIFESTS, LOCK]) assert.equal(JSON.parse(plan.changes[file]).version, '0.4.1');
+test('past 1.0 removed and breaking changes refuse automatic release; below 1.0 they release', () => {
+  const removed = state(files({ version: '1.2.3', changelog: LOG.replaceAll('0.6.0', '1.2.3'), changes: { 'changes/drop.md': changeFile('removed', 'Drop an option.') } }));
+  let plan = planRelease(removed, { date: DATE });
+  assert.equal(plan.kind, 'noop');
+  assert.match(plan.reason, /only a person takes the major/);
+  const breaking = state(files({ version: '1.2.3', changelog: LOG.replaceAll('0.6.0', '1.2.3'), changes: { 'changes/break.md': changeFile('changed', 'Rename a key.', true) } }));
+  plan = planRelease(breaking, { date: DATE });
+  assert.equal(plan.kind, 'noop');
+  assert.match(plan.reason, /only a person takes the major/);
+  assert.equal(planRelease(state(files({ changes: { 'changes/drop.md': changeFile('removed', 'Drop.') } })), { date: DATE }).version, '0.7.0');
+  assert.equal(planRelease(state(files({ changes: { 'changes/break.md': changeFile('changed', 'Break.', true) } })), { date: DATE }).version, '0.6.1');
+});
+
+test('unreadable, unknown-type, empty and multi-line changes throw naming the file', () => {
+  for (const [name, text, re] of [
+    ['bad-front.md', 'bad', /changes\/bad-front\.md/],
+    ['unknown.md', changeFile('improved', 'Faster.'), /changes\/unknown\.md.*type/],
+    ['empty.md', changeFile('fixed', '   '), /changes\/empty\.md.*summary/],
+    ['multi.md', changeFile('fixed', 'One.\nTwo.'), /changes\/multi\.md.*summary/],
+  ]) {
+    const map = files({ changes: { [`changes/${name}`]: text } });
+    if (name === 'bad-front.md') assert.throws(() => state(map), re);
+    else assert.throws(() => planRelease(state(map), { date: DATE }), re);
+  }
+});
+
+test('rendered section text uses heading order, PR ordering and BREAKING marker exactly', () => {
+  const changes = [
+    change('fixed', 'Correct an offset.', { file: 'changes/z-fix.md' }),
+    change('added', 'A second layout.', { file: 'changes/b-add.md' }),
+    change('added', 'A first layout.', { file: 'changes/a-add.md' }),
+    change('removed', 'Drop the loader.', { file: 'changes/drop.md' }),
+    change('changed', 'Rename a key.', { file: 'changes/break.md', breaking: true }),
+  ];
+  const prs = { 'changes/b-add.md': 12, 'changes/a-add.md': 9, 'changes/drop.md': 5, 'changes/z-fix.md': 30 };
+  assert.equal(renderSection(changes, prs), [
+    '### Added', '', '- A first layout. (#9)', '- A second layout. (#12)', '',
+    '### Changed', '', '- **BREAKING**: Rename a key.', '',
+    '### Removed', '', '- Drop the loader. (#5)', '',
+    '### Fixed', '', '- Correct an offset. (#30)',
+  ].join('\n'));
+});
+
+test('CHANGELOG.md refuses Unreleased, invalid headings, duplicates and ascending releases', () => {
+  assert.throws(() => parseChangelog('# Changelog\n\n## [Unreleased]\n'), /Unreleased/);
+  assert.throws(() => parseChangelog('# Changelog\n\n## [Upcoming]\n'), /Invalid release heading/);
+  assert.throws(() => parseChangelog(`${LOG}\n## [0.6.0] - 2026-09-01\n`), /unique/);
+  assert.throws(() => parseChangelog(`${LOG}\n## [0.7.0] - 2026-09-01\n`), /descending/);
+  assert.throws(() => parseChangelog(`${LOG}\n\`\`\`\nunclosed`), /Unclosed/);
+});
+
+test('cut synchronizes manifests and optional lock, deletes change files and scopes notes', (t) => {
+  const map = files({ lock: true, changes: { 'changes/fix.md': changeFile('fixed', 'Fix rendering.') } });
+  const plan = planRelease(state(map, { 'changes/fix.md': 18 }), { date: DATE });
+  assert.equal(plan.version, '0.6.1');
+  assert.equal(plan.notes, '### Fixed\n\n- Fix rendering. (#18)');
+  for (const file of MANIFESTS) assert.equal(JSON.parse(plan.changes[file]).version, '0.6.1');
   const lock = JSON.parse(plan.changes[LOCK]);
-  assert.equal(lock.packages[''].version, '0.4.1');
-  assert.equal(lock.packages['node_modules/example'].version, '9.2.1');
-  assert.equal(plan.notes, '### Fixed\n- Fix rendering.');
-  assert.match(plan.changes['CHANGELOG.md'], /## \[Unreleased\]\n\n## \[0\.4\.1\] \u2014 2026-09-12/);
-  assert.match(plan.changes['CHANGELOG.md'], /Previous release\./);
-  assert.equal(planRelease(state({ ...files, ...plan.changes })).kind, 'noop');
-});
+  assert.equal(lock.version, '0.6.1');
+  assert.equal(lock.packages[''].version, '0.6.1');
+  assert.equal(lock.packages.dep.version, '9.9.9');
+  assert.equal(plan.changes['changes/fix.md'], null);
+  assert.match(plan.changes['CHANGELOG.md'], /^## \[0\.6\.1\] — 2026-09-25\n\n### Fixed\n\n- Fix rendering\. \(#18\)/m);
+  assert.equal(releaseNotes(plan.changes['CHANGELOG.md'], '0.6.1'), plan.notes);
 
-test('drift, malformed changelog and invalid dates fail explicitly', () => {
-  for (const file of MANIFESTS) {
-    const files = fixture();
-    files[file] = '{"version":"0.3.0"}';
-    assert.throws(() => state(files), /drift|does not match/);
+  const root = tmp(t, 'apply');
+  for (const [file, text] of Object.entries(map)) {
+    const full = path.join(root, ...file.split('/'));
+    fs.mkdirSync(path.dirname(full), { recursive: true });
+    fs.writeFileSync(full, text);
   }
-  const files = fixture();
-  files[LOCK] = '{"version":"0.4.0","lockfileVersion":3,"packages":{"":{"version":"0.3.0"}}}';
-  assert.throws(() => state(files), /drift/);
-  for (const changelog of [
-    '# Changelog', '## [Unreleased]\n## [Unreleased]\n## [0.4.0] - 2026-09-06',
-    '## [0.4.0] - 2026-09-06\n## [Unreleased]', '## [Unreleased]\n## [Upcoming]',
-  ]) assert.throws(() => parseChangelog(changelog));
-  assert.throws(() => parseChangelog(`${fixture()['CHANGELOG.md']}\n## [0.4.0] - 2026-09-01`), /unique/);
-  assert.throws(() => parseChangelog(`${fixture()['CHANGELOG.md']}\n## [0.5.0] - 2026-09-01`), /descending/);
-  assert.throws(() => planRelease(state(fixture()), { date: '2026-02-30' }), /date/);
+  applyPlan(root, plan);
+  assert.equal(fs.existsSync(path.join(root, 'changes', 'fix.md')), false);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(root, MANIFESTS[0]), 'utf8')).version, '0.6.1');
 });
 
-test('CRLF, comments and fenced headings cannot change release boundaries or bump selection', () => {
-  const files = fixture('### Fixed\n- Example:\n```md\n## [Unreleased]\n### Added\n```\n<!--\n### Removed\n- Hidden\n-->');
-  const parsed = state(files);
-  assert.equal(planRelease(parsed).version, '0.4.1');
-  assert.equal(planRelease(state(Object.fromEntries(Object.entries(files).map(([file, text]) => [file, text.replace(/\n/g, '\r\n')])))).version, '0.4.1');
-  assert.throws(() => state(fixture('```\nunclosed')), /Unclosed/);
-  assert.equal(planRelease(state(fixture('### Fixed\n- Document literal comments:\n```html\n<!--\n```\n'))).version, '0.4.1');
+test('CRLF input stays CRLF and manifest/changelog drift fails explicitly', () => {
+  const map = files({ changelog: LOG.replace(/\n/g, '\r\n'), changes: { 'changes/fix.md': changeFile('fixed', 'Fix.') } });
+  const plan = planRelease(state(map), { date: DATE });
+  assert.equal(/\r\n/.test(plan.changes['CHANGELOG.md']), true);
+  assert.equal(/(^|[^\r])\n/.test(plan.changes['CHANGELOG.md']), false);
+  const drift = files();
+  drift[MANIFESTS[1]] = JSON.stringify({ version: '0.5.0' });
+  assert.throws(() => state(drift), /Version drift/);
+  const lockDrift = files({ lock: true });
+  lockDrift[LOCK] = '{"version":"0.6.0","lockfileVersion":3,"packages":{"":{"version":"0.5.0"}}}';
+  assert.throws(() => state(lockDrift), /Version drift/);
+  const changelogDrift = files({ version: '0.6.1' });
+  assert.throws(() => state(changelogDrift), /Latest changelog version/);
+  assert.throws(() => planRelease(state(files({ changes: { 'changes/fix.md': changeFile('fixed', 'Fix.') } })), { date: '2026-02-30' }), /date/);
 });
 
-test('PR guard holds absorbable bullets, renames and explicit references but not unrelated or unabsorbable PRs', async () => {
-  const pulls = [1, 2, 3, 4, 5, 6].map(number => ({ number, title: `PR ${number}`, head: { sha: String(number).repeat(40) } }));
-  const files = {
-    1: [{ filename: 'CHANGELOG.md' }],
-    2: [{ filename: 'archive.md', previous_filename: 'CHANGELOG.md' }],
-    3: [{ filename: 'README.md' }],
-    4: [{ filename: 'renderer.js' }],
-    5: [{ filename: 'README.md' }],
-    6: [{ filename: 'CHANGELOG.md' }],
-  };
-  const notes = '### Fixed\n- Already on main.';
-  const branches = {
-    // Adds a bullet the cut would absorb.
-    [pulls[0].head.sha]: '## [Unreleased]\n\n### Added\n- Work still in flight.\n\n## [0.4.0] - 2026-01-01\n',
-    // Touches CHANGELOG.md, but only repeats what main already carries and edits
-    // a released section -- the cut has nothing to absorb, so this must not hold.
-    [pulls[5].head.sha]: '## [Unreleased]\n\n### Fixed\n- Already on main.\n\n## [0.4.0] - 2026-01-01\n\n### Fixed\n- Typo in a shipped line.\n',
-  };
-  const github = {
-    pages: async endpoint => endpoint.startsWith('/pulls?') ? pulls : files[endpoint.split('/')[2]],
-    file: async (path, ref) => branches[ref],
-  };
-  const held = await inFlight(github, `${notes}\nFix #3 and https://github.com/owner/repo/pull/4, not #50.`);
-  assert.deepEqual(held.map(pull => pull.number), [1, 2, 3, 4]);
-  assert.equal(held[0].entries, 1);
-  await assert.rejects(inFlight({ pages: async () => { throw new Error('API unavailable'); } }, ''), /unavailable/);
-  await assert.rejects(inFlight({ pages: async () => [{}] }, ''), /invalid/);
-  await assert.rejects(
-    inFlight({ pages: async endpoint => endpoint.startsWith('/pulls?') ? [{ number: 1, title: 'No head' }] : files[1] }, ''),
-    /no head commit/);
-});
-
-test('API pagination is complete; only explicit release 404 is absence; API errors never become no-PR', async () => {
-  const requests = [];
-  const github = new GitHub({
-    repository: 'owner/repo', token: 'test-only',
-    fetchImpl: async url => {
-      requests.push(url);
-      if (url.includes('/releases/')) return { status: 404, ok: false };
-      return { ok: true, json: async () => new URL(url).searchParams.get('page') === '1' ? Array.from({ length: 100 }, (_, number) => ({ number })) : [{ number: 100 }] };
-    },
-  });
-  assert.equal((await github.pages('/pulls?state=open&base=main')).length, 101);
-  assert.ok(requests[1].includes('&page=2'));
-  assert.equal(await github.release('v0.4.0'), null);
-  for (const status of [401, 403, 429, 500]) {
-    const bad = new GitHub({ repository: 'owner/repo', token: 'test-only', fetchImpl: async () => ({ ok: false, status }) });
-    await assert.rejects(bad.release('v0.4.0'), new RegExp(`HTTP ${status}`));
-    await assert.rejects(inFlight(bad, ''), new RegExp(`HTTP ${status}`));
-  }
-  await assert.rejects(github.pages('/pulls', 1), /pagination limit/);
-  assert.throws(() => new GitHub({ repository: 'bad/../../url', token: 'test-only' }), /Invalid/);
-});
-
-function issueApi(existing = []) {
-  const writes = [];
-  return { repository: 'owner/repo', writes, pages: async () => existing, request: async (...args) => { writes.push(args); return {}; } };
-}
-
-test('release-due creates once, reopens same standing issue, and closes when published', async () => {
-  const github = issueApi();
-  await runDue({ github, evaluateStatus: async () => ({ kind: 'ready', detail: 'v0.5.0', notes: '- Feature' }) });
-  assert.equal(github.writes[0][0], 'POST');
-  assert.match(github.writes[0][2].body, /Status: ready/);
-  const existing = issueApi([{ number: 4, body: MARKER, state: 'closed' }]);
-  await runDue({ github: existing, evaluateStatus: async () => ({ kind: 'held', detail: '#2' }) });
-  assert.equal(existing.writes[0][1], '/issues/4');
-  assert.equal(existing.writes[0][2].state, 'open');
-  await runDue({ github: existing, evaluateStatus: async () => ({ kind: 'published', detail: 'v0.5.0 published' }) });
-  assert.equal(existing.writes[1][2].state, 'closed');
-  const empty = issueApi();
-  await runDue({ github: empty, evaluateStatus: async () => ({ kind: 'published', detail: 'No notes' }) });
-  assert.equal(empty.writes.length, 0);
-});
-
-test('release-due reports failure, fails the job, and refuses duplicate issues', async () => {
-  const github = issueApi();
-  await assert.rejects(runDue({ github, evaluateStatus: async () => { throw new Error('HTTP 503'); } }), /HTTP 503/);
-  assert.match(github.writes[0][2].body, /Status: failed/);
-  const duplicates = issueApi([{ number: 1, body: MARKER }, { number: 2, body: MARKER }]);
-  await assert.rejects(runDue({ github: duplicates, evaluateStatus: async () => ({ kind: 'ready', detail: '' }) }), /Multiple/);
-  assert.equal(duplicates.writes.length, 0);
-  await assert.rejects(runDue({
-    github: { pages: async () => { throw new Error('Issues API unavailable'); } },
-    evaluateStatus: async () => ({ kind: 'ready', detail: '' }),
-  }), /Issues API unavailable/);
+test('the live changelog has no Unreleased, agrees with the manifests, and the next release can be written above it', () => {
+  // Read as it stands, whatever change files are waiting: the release's own
+  // validation step runs this suite on the cut, after the change files are gone
+  // and the version has moved, so nothing here may name a version or a file.
+  const stateNow = readState(
+    (file) => fs.readFileSync(path.join(ROOT, ...file.split('/')), 'utf8'),
+    (file) => fs.existsSync(path.join(ROOT, ...file.split('/'))),
+    { list: () => fs.readdirSync(path.join(ROOT, 'changes')).map((name) => `changes/${name}`) },
+  );
+  assert.equal(stateNow.changelog.latest, stateNow.version);
+  assert.deepEqual(stateNow.changes.flatMap(problemsOf), []);
+  const plan = planRelease({ ...stateNow, changes: [{ file: 'changes/probe.md', type: 'fixed', breaking: false, summary: 'Probe.' }], prs: {} }, { date: DATE });
+  assert.equal(plan.kind, 'release');
+  assert.equal(plan.version, nextVersion(stateNow.version, 'patch'));
+  assert.equal(releaseNotes(plan.changes['CHANGELOG.md'], plan.version), '### Fixed\n\n- Probe.');
 });

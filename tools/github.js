@@ -41,19 +41,6 @@ class GitHub {
   release(tag) {
     return this.request('GET', `/releases/tags/${encodeURIComponent(tag)}`, undefined, { allow404: true });
   }
-
-  // A file as it stands at one commit. The in-flight guard needs a branch's own
-  // CHANGELOG.md to see what it would add under `[Unreleased]`; a 404 is a real
-  // answer -- the branch does not carry the file -- rather than a failure.
-  async file(path, ref) {
-    if (!/^[0-9a-f]{40}$/.test(ref || '')) throw new Error('Expected a commit SHA to read a file at');
-    const body = await this.request('GET', `/contents/${path}?ref=${ref}`, undefined, { allow404: true });
-    if (body === null) return '';
-    if (body.encoding !== 'base64' || typeof body.content !== 'string') {
-      throw new Error(`GitHub API returned an unreadable ${path}`);
-    }
-    return Buffer.from(body.content, 'base64').toString('utf8');
-  }
 }
 
 function fromEnvironment() {

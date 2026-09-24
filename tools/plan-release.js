@@ -2,6 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { readChangesFrom, problemsOf } = require('./changes');
 
 const MANIFESTS = [
   '.plugin/plugin.json',
@@ -10,10 +11,8 @@ const MANIFESTS = [
 ];
 const LOCK = 'skills/diagram-renderer/package-lock.json';
 
-// Keep a Changelog has no heading for a breaking change, so past 1.0.0 one arrives
-// as a bullet under `### Changed` that says so. The marker has to lead the bullet:
-// read anywhere in the line it fires on bullets that merely describe this rule.
-const BREAKING = /^\s*-\s+\**BREAKING\b/;
+const HEADING = Object.freeze({ added: 'Added', changed: 'Changed', removed: 'Removed', fixed: 'Fixed' });
+const ORDER = Object.freeze(['added', 'changed', 'removed', 'fixed']);
 
 function versionParts(version) {
   if (typeof version !== 'string' || !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version)) {
@@ -24,8 +23,15 @@ function versionParts(version) {
   return parts;
 }
 
-function visibleMarkdown(text) {
-  return text.replace(/<!--[\s\S]*?-->/g, '').trim();
+function compareVersions(a, b) {
+  const left = Array.isArray(a) ? a : versionParts(a);
+  const right = Array.isArray(b) ? b : versionParts(b);
+  for (let i = 0; i < 3; i++) if (left[i] !== right[i]) return left[i] - right[i];
+  return 0;
+}
+
+function detectEol(text) {
+  return /\r\n/.test(text) ? '\r\n' : '\n';
 }
 
 function headings(text) {
@@ -60,46 +66,45 @@ function headings(text) {
 }
 
 function parseChangelog(input) {
-  const text = input.replace(/\r\n/g, '\n');
-  const sections = headings(text).filter(h => h.level === 2);
-  if (sections[0]?.title !== '[Unreleased]' ||
-      sections.filter(h => h.title === '[Unreleased]').length !== 1) {
-    throw new Error('CHANGELOG.md must start with exactly one ## [Unreleased] section');
+  const raw = String(input);
+  const eol = detectEol(raw);
+  const text = raw.replace(/\r\n/g, '\n');
+  const sections = headings(text).filter((heading) => heading.level === 2);
+  if (sections.some((section) => section.title === '[Unreleased]')) {
+    throw new Error('CHANGELOG.md must not contain `## [Unreleased]`; the release writes each section from change files and a hand-written one would be released twice');
   }
   const releaseHeading = /^\[(\d+\.\d+\.\d+)\] (?:\u2014|-) (\d{4}-\d{2}-\d{2})$/;
-  const latest = releaseHeading.exec(sections[1]?.title || '');
-  if (!latest) throw new Error('Unreleased must be followed by a dated stable version heading');
+  if (!sections.length) throw new Error('CHANGELOG.md must contain at least one dated stable release heading');
+
+  const releases = [];
+  const seen = new Set();
   let previous;
-  for (const section of sections.slice(1)) {
+  for (const section of sections) {
     const match = releaseHeading.exec(section.title);
     if (!match) throw new Error(`Invalid release heading: ${section.title}`);
+    if (seen.has(match[1])) throw new Error('Released versions must be unique and in descending order');
+    seen.add(match[1]);
     const parts = versionParts(match[1]);
-    if (previous) {
-      const firstDifference = parts.findIndex((part, index) => part !== previous[index]);
-      if (firstDifference < 0 || parts[firstDifference] > previous[firstDifference]) {
-        throw new Error('Released versions must be unique and in descending order');
-      }
+    if (previous && compareVersions(parts, previous) >= 0) {
+      throw new Error('Released versions must be unique and in descending order');
     }
     previous = parts;
+    releases.push({ ...section, version: match[1], date: match[2], parts });
   }
-  const [unreleased, next] = sections;
-  const notes = text.slice(unreleased.end, next.start).trim();
-  const categories = headings(notes).filter(h => h.level === 3);
-  const meaningful = visibleMarkdown(notes).replace(/^### .+$/gm, '').trim();
-  let minor = false;
-  const filled = [];
-  for (let i = 0; i < categories.length; i++) {
-    const category = categories[i];
-    const body = visibleMarkdown(notes.slice(category.end, categories[i + 1]?.start ?? notes.length));
-    if (body) filled.push(category.title);
-    if (body && ['Added', 'Removed'].includes(category.title)) minor = true;
-  }
-  const breaking = visibleMarkdown(notes).split('\n').filter(line => BREAKING.test(line)).map(line => line.trim());
-  return { text, unreleased, next, notes, hasNotes: Boolean(meaningful), minor, sections: filled, breaking, latest: latest[1] };
+  return { raw, text, eol, releases, latest: releases[0].version, latestDate: releases[0].date, insertIndex: releases[0].start };
 }
 
-function readState(read = file => fs.readFileSync(file, 'utf8'), has = fs.existsSync) {
-  const documents = Object.fromEntries(MANIFESTS.map(file => [file, JSON.parse(read(file))]));
+function defaultList() {
+  if (!fs.existsSync('changes')) return [];
+  return fs.readdirSync('changes').map((name) => `changes/${name}`);
+}
+
+function readState(
+  read = (file) => fs.readFileSync(file, 'utf8'),
+  has = (file) => fs.existsSync(file),
+  { list = defaultList, prOf = () => null } = {},
+) {
+  const documents = Object.fromEntries(MANIFESTS.map((file) => [file, JSON.parse(read(file))]));
   const version = documents[MANIFESTS[0]].version;
   versionParts(version);
   for (const file of MANIFESTS) {
@@ -112,58 +117,72 @@ function readState(read = file => fs.readFileSync(file, 'utf8'), has = fs.exists
     }
     documents[LOCK] = lock;
   }
+
   const changelog = parseChangelog(read('CHANGELOG.md'));
   if (changelog.latest !== version) {
     throw new Error(`Latest changelog version ${changelog.latest} does not match manifests ${version}`);
   }
-  return { version, documents, changelog };
+  const changes = readChangesFrom(list(), read);
+  const prs = {};
+  for (const change of changes) prs[change.file] = prOf(change.file) || null;
+  return { version, documents, changelog, changes, prs };
 }
 
-function planRelease(state, { version = '', allowMajor = false, date = new Date().toISOString().slice(0, 10) } = {}) {
-  const current = versionParts(state.version);
-  let next;
-  let bump;
-  if (version) {
-    versionParts(version);
-    if (!allowMajor || version !== `${current[0] + 1}.0.0`) {
-      throw new Error(`An explicit version is allowed only for manual next-major ${current[0] + 1}.0.0`);
-    }
-    next = version;
-    bump = 'major';
-  } else {
-    bump = state.changelog.minor ? 'minor' : 'patch';
-    next = bump === 'minor' ? `${current[0]}.${current[1] + 1}.0` : `${current[0]}.${current[1]}.${current[2] + 1}`;
-  }
-  versionParts(next);
-  if (!state.changelog.hasNotes) return { kind: 'noop', current: state.version, reason: 'Unreleased has no user-visible notes' };
+function deriveBump(changes) {
+  return changes.some((change) => change.type === 'added' || change.type === 'removed') ? 'minor' : 'patch';
+}
 
-  // Past 1.0.0 the derived path must refuse anything breaking. MAJOR is a promise
-  // about stability and a workflow cannot make one, so the release stops and waits
-  // for the explicit next-major above. Below 1.0.0 a removal is still a minor,
-  // which is what this project has done. An explicitly requested major has already
-  // been checked, so it is not second-guessed here.
-  if (!version && current[0] >= 1) {
-    if (state.changelog.sections.includes('Removed')) {
-      return {
-        kind: 'noop',
-        current: state.version,
-        reason: 'a `### Removed` past 1.0.0 is a breaking change, and only a person can take the major',
-      };
-    }
-    if (state.changelog.breaking.length) {
-      return {
-        kind: 'noop',
-        current: state.version,
-        reason: `${state.changelog.breaking.length} entry/entries past 1.0.0 are marked BREAKING, ` +
-          `and only a person can take the major: ${state.changelog.breaking[0]}`,
-      };
-    }
-  }
+function nextVersion(current, bump) {
+  const [major, minor, patch] = versionParts(current);
+  if (bump === 'major') return `${major + 1}.0.0`;
+  if (bump === 'minor') return `${major}.${minor + 1}.0`;
+  return `${major}.${minor}.${patch + 1}`;
+}
 
+function validateDate(date) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || new Date(date).toISOString().slice(0, 10) !== date) {
     throw new Error('Release date must be a valid YYYY-MM-DD date');
   }
-  const { changelog } = state;
+}
+
+function entryLine(change, pr) {
+  return `- ${change.breaking ? '**BREAKING**: ' : ''}${change.summary.trim()}${pr ? ` (#${pr})` : ''}`;
+}
+
+function renderSection(changes, prs = {}) {
+  const out = [];
+  for (const type of ORDER) {
+    const mine = changes.filter((change) => change.type === type)
+      .map((change) => ({ change, pr: prs[change.file] || null }))
+      .sort((a, b) => (a.pr || Infinity) - (b.pr || Infinity) || String(a.change.file).localeCompare(String(b.change.file)));
+    if (!mine.length) continue;
+    if (out.length) out.push('');
+    out.push(`### ${HEADING[type]}`, '');
+    for (const { change, pr } of mine) out.push(entryLine(change, pr));
+  }
+  return out.join('\n');
+}
+
+function writeSection(changelog, version, date, notes) {
+  const block = `## [${version}] \u2014 ${date}\n\n${notes}\n\n`;
+  const text = `${changelog.text.slice(0, changelog.insertIndex)}${block}${changelog.text.slice(changelog.insertIndex)}`;
+  return changelog.eol === '\n' ? text : text.replace(/\n/g, changelog.eol);
+}
+
+function releaseNotes(changelog, version) {
+  const text = String(changelog).replace(/\r\n/g, '\n');
+  const lines = text.split('\n');
+  const heading = new RegExp(`^## \\[${version.replace(/\./g, '\\.')}\\]`);
+  const start = lines.findIndex((line) => heading.test(line));
+  if (start === -1) return '';
+  let end = lines.length;
+  for (let i = start + 1; i < lines.length; i++) {
+    if (/^## \[/.test(lines[i])) { end = i; break; }
+  }
+  return lines.slice(start + 1, end).join('\n').trim();
+}
+
+function plannedDocumentChanges(state, next, changelog, files) {
   const changes = {};
   for (const [file, document] of Object.entries(state.documents)) {
     const updated = JSON.parse(JSON.stringify(document));
@@ -171,19 +190,107 @@ function planRelease(state, { version = '', allowMajor = false, date = new Date(
     if (file === LOCK && updated.packages?.['']) updated.packages[''].version = next;
     changes[file] = `${JSON.stringify(updated, null, 2)}\n`;
   }
-  changes['CHANGELOG.md'] = `${changelog.text.slice(0, changelog.unreleased.end)}\n\n` +
-    `## [${next}] \u2014 ${date}\n\n${changelog.notes}\n\n${changelog.text.slice(changelog.next.start)}`;
-  return { kind: 'release', current: state.version, version: next, tag: `v${next}`, bump, notes: changelog.notes, changes };
+  changes['CHANGELOG.md'] = changelog;
+  for (const file of files) changes[file] = null;
+  return changes;
+}
+
+function planRelease(state, { version = '', allowMajor = false, date = new Date().toISOString().slice(0, 10) } = {}) {
+  const current = versionParts(state.version);
+  let requested = version || '';
+  let bump = '';
+  let next = '';
+  if (requested) {
+    versionParts(requested);
+    const want = `${current[0] + 1}.0.0`;
+    if (!allowMajor || requested !== want) {
+      throw new Error(`An explicit version is allowed only for manual next-major ${want}`);
+    }
+    bump = 'major';
+    next = requested;
+  }
+
+  if (state.changes.length === 0) {
+    return { kind: 'noop', current: state.version, reason: 'there are no change files in changes/' };
+  }
+
+  const problems = state.changes.flatMap(problemsOf);
+  if (problems.length) throw new Error(`${problems.length} change file problem(s): ${problems[0]}`);
+
+  if (!requested && current[0] >= 1) {
+    const removed = state.changes.find((change) => change.type === 'removed');
+    if (removed) {
+      return { kind: 'noop', current: state.version, reason: `${removed.file} is a removal past 1.0.0, and only a person takes the major` };
+    }
+    const breaking = state.changes.find((change) => change.breaking);
+    if (breaking) {
+      return { kind: 'noop', current: state.version, reason: `${breaking.file} is breaking past 1.0.0, and only a person takes the major` };
+    }
+  }
+
+  validateDate(date);
+  if (!requested) {
+    bump = deriveBump(state.changes);
+    next = nextVersion(state.version, bump);
+  }
+  const notes = renderSection(state.changes, state.prs);
+  const changelog = writeSection(state.changelog, next, date, notes);
+  const files = state.changes.map((change) => change.file);
+  return {
+    kind: 'release',
+    current: state.version,
+    version: next,
+    tag: `v${next}`,
+    bump,
+    date,
+    notes,
+    entries: state.changes.length,
+    files,
+    changes: plannedDocumentChanges(state, next, changelog, files),
+  };
 }
 
 function applyPlan(root, plan) {
   if (plan.kind !== 'release') throw new Error('Only a release plan can be written');
-  for (const [file, content] of Object.entries(plan.changes)) fs.writeFileSync(path.join(root, file), content);
-  const result = readState(file => fs.readFileSync(path.join(root, file), 'utf8'), file => fs.existsSync(path.join(root, file)));
-  if (result.version !== plan.version || result.changelog.hasNotes) throw new Error('Release cut validation failed');
+  for (const [file, content] of Object.entries(plan.changes)) {
+    const full = path.join(root, ...file.split('/'));
+    if (content === null) {
+      if (fs.existsSync(full)) fs.unlinkSync(full);
+    } else {
+      fs.mkdirSync(path.dirname(full), { recursive: true });
+      fs.writeFileSync(full, content);
+    }
+  }
+  const result = readState(
+    (file) => fs.readFileSync(path.join(root, ...file.split('/')), 'utf8'),
+    (file) => fs.existsSync(path.join(root, ...file.split('/'))),
+    {
+      list: () => {
+        const dir = path.join(root, 'changes');
+        return fs.existsSync(dir) ? fs.readdirSync(dir).map((name) => `changes/${name}`) : [];
+      },
+    },
+  );
+  if (result.version !== plan.version || result.changes.length !== 0) throw new Error('Release cut validation failed');
 }
 
-module.exports = { MANIFESTS, LOCK, versionParts, parseChangelog, readState, planRelease, applyPlan };
+module.exports = {
+  MANIFESTS,
+  LOCK,
+  HEADING,
+  ORDER,
+  versionParts,
+  parseChangelog,
+  readState,
+  deriveBump,
+  nextVersion,
+  entryLine,
+  renderSection,
+  writeSection,
+  releaseNotes,
+  planRelease,
+  applyPlan,
+};
 
 if (require.main === module) {
   try {
@@ -192,7 +299,13 @@ if (require.main === module) {
       throw new Error('Usage: node tools/plan-release.js --check|--plan (read-only)');
     }
     const state = readState();
-    console.log(JSON.stringify(args[0] === '--check' ? { version: state.version, valid: true } : planRelease(state), null, 2));
+    const plan = args[0] === '--plan' ? planRelease(state, { version: process.env.RELEASE_VERSION || '', allowMajor: false }) : null;
+    const result = args[0] === '--check'
+      ? { version: state.version, changes: state.changes.length, valid: true }
+      : plan.kind === 'release'
+        ? { kind: plan.kind, current: plan.current, version: plan.version, tag: plan.tag, bump: plan.bump, date: plan.date, entries: plan.entries, files: plan.files, notes: plan.notes }
+        : plan;
+    console.log(JSON.stringify(result, null, 2));
   } catch (error) {
     console.error(error.message);
     process.exitCode = 1;
