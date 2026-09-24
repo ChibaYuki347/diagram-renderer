@@ -172,13 +172,13 @@ function stepOf(y, name) {
   return { at, step, script };
 }
 
-test('once it has published, release.yml asks the marketplace to pin the release, says so when it cannot, and fails when asking fails', () => {
+test('release.yml asks the marketplace to pin what it published, on every run so that a retry asks again, says so when it cannot, and fails when asking fails', () => {
   const y = fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'release.yml'), 'utf8').replace(/\r\n/g, '\n');
   const s = stepOf(y, 'Ask the marketplace to pin the release');
   assert.ok(s, 'the step is gone');
   const release = y.indexOf('      - name: Plan, validate cut, atomically push and publish\n        id: release\n');
   assert.ok(release !== -1 && s.at > release, 'it does not come after the release, or the release step has no id');
-  assert.match(s.step, /\n {8}if: steps\.release\.outputs\.published == 'true'\n/);
+  assert.doesNotMatch(s.step, /\n {8}if: /, 'it is gated, so a run retried after a failed request, with nothing left to publish, would not ask again');
   assert.match(s.step, /GH_TOKEN: \$\{\{ secrets\.MARKETPLACE_DISPATCH_TOKEN \}\}/);
   assert.match(s.step, /TAG: \$\{\{ steps\.release\.outputs\.tag \}\}/);
   const tokens = [...y.matchAll(/GH_TOKEN: (.*)/g)].map((m) => m[1].trim());
@@ -194,27 +194,37 @@ test('once it has published, release.yml asks the marketplace to pin the release
   assert.equal(cp.spawnSync('bash', ['--version'], { encoding: 'utf8' }).status, 0, 'no bash to run the step with');
   const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'dr-dispatch-'));
   const unix = (p) => p.split(path.sep).join('/');
-  const run = (token, ghExit = 0) => {
+  const run = (token, ghExit = 0, tag = 'v9.9.9') => {
     const log = path.join(dir, 'gh.log');
     const summary = path.join(dir, 'summary.md');
     fs.writeFileSync(log, ''); fs.writeFileSync(summary, '');
     const fake = 'gh() { printf \'%s\\n\' "$*" >> "$GH_LOG"; return "${GH_EXIT:-0}"; }\n';
     const r = cp.spawnSync('bash', ['-c', fake + s.script], {
       encoding: 'utf8',
-      env: { ...process.env, GH_TOKEN: token, MARKETPLACE: marketplace, TAG: 'v9.9.9', GH_LOG: unix(log), GH_EXIT: String(ghExit), GITHUB_STEP_SUMMARY: unix(summary) },
+      env: { ...process.env, GH_TOKEN: token, MARKETPLACE: marketplace, TAG: tag, GH_LOG: unix(log), GH_EXIT: String(ghExit), GITHUB_STEP_SUMMARY: unix(summary) },
     });
     return { status: r.status, out: `${r.stdout}${r.stderr}`, calls: fs.readFileSync(log, 'utf8').trim(), summary: fs.readFileSync(summary, 'utf8') };
   };
+  const CALL = 'workflow run sync-plugin-refs.yml --repo ChibaYuki347/chibayuki-private-marketplace --ref main';
   try {
     const none = run('');
     assert.equal(none.status, 0);
     assert.match(none.out, /::warning::MARKETPLACE_DISPATCH_TOKEN is not set, so ChibaYuki347\/chibayuki-private-marketplace was not asked to pin v9\.9\.9/);
     assert.match(none.summary, /was not asked to pin v9\.9\.9/);
     assert.equal(none.calls, '');
+    const quiet = run('', 0, '');
+    assert.equal(quiet.status, 0);
+    assert.doesNotMatch(quiet.out, /warning/, 'with no token and nothing published, it should stay quiet');
+    assert.equal(quiet.summary, '');
+    assert.equal(quiet.calls, '');
     const asked = run('t0ken');
     assert.equal(asked.status, 0);
-    assert.equal(asked.calls, 'workflow run sync-plugin-refs.yml --repo ChibaYuki347/chibayuki-private-marketplace --ref main');
-    assert.match(asked.summary, /Asked ChibaYuki347\/chibayuki-private-marketplace to pin v9\.9\.9/);
+    assert.equal(asked.calls, CALL);
+    assert.match(asked.summary, /Asked ChibaYuki347\/chibayuki-private-marketplace to sync \(sync-plugin-refs\) and pin v9\.9\.9\./);
+    const again = run('t0ken', 0, '');
+    assert.equal(again.status, 0);
+    assert.equal(again.calls, CALL, 'with nothing published on this run (a retry), it should ask again');
+    assert.match(again.summary, /Asked ChibaYuki347\/chibayuki-private-marketplace to sync \(sync-plugin-refs\)\.\n/);
     const refused = run('t0ken', 1);
     assert.notEqual(refused.status, 0, 'a dispatch that fails leaves the run green');
     assert.doesNotMatch(refused.summary, /Asked/);

@@ -117,9 +117,12 @@ Publishing a GitHub Release is separate from marketplace delivery. The
 marketplace repository's `sync-plugin-refs` reads each plugin's latest release,
 pins its catalog `source.ref` in a PR of its own, validates it and merges it.
 
-**The release asks for that.** Once `tools/release.js` has published a version
-(a new cut, or a recovered one), the last step of `release.yml` runs
-`gh workflow run sync-plugin-refs.yml` on the marketplace. That job used to run
+**The release asks for that.** The last step of `release.yml` runs
+`gh workflow run sync-plugin-refs.yml` on the marketplace, right after
+`tools/release.js` has published a version (a new cut, or a recovered one). It
+does the same on a run with nothing to publish: the sync pins whatever each
+plugin's latest release is, so asking again costs one short run there, and it
+means a run retried after a failed request still asks. That job used to run
 only on its own schedule, 06:17 JST, which was meant to come after 05:30. But
 GitHub starts both hours late and in no fixed order, so a release could reach
 the catalog a day late. The schedule stays, as the fallback.
@@ -128,9 +131,9 @@ The step needs one secret, `MARKETPLACE_DISPATCH_TOKEN`: a fine-grained
 personal access token with access to `ChibaYuki347/chibayuki-private-marketplace`
 only, and **Actions: Read and write** as its only permission. It cannot read or
 write that repository's contents. It can manage Actions there, though: start,
-re-run, cancel and delete workflow runs. Treat a leak as that. Without it, the
-step leaves a warning and a line in the run's summary, and the release still
-stands. With it, a dispatch that fails turns the run red.
+re-run, cancel and delete workflow runs. Treat a leak as that. Without it, a
+run that published something leaves a warning and a line in its summary, and
+the release still stands. With it, a dispatch that fails turns the run red.
 
 ## Offline checks
 
