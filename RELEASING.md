@@ -40,7 +40,7 @@ does not introduce it into the release commit unless it is already tracked.
 | --- | --- |
 | Any `type: added` or `type: removed`, or below 1.0.0 any `breaking: true` | Next minor, patch reset to zero |
 | Only `type: changed` and/or `type: fixed`, none breaking | Next patch |
-| No change files | No-op: the only quiet "no" |
+| No change files | No-op: the only quiet "no" (the run still asks the marketplace to sync) |
 
 A breaking change takes the minor below 1.0.0 whatever its type, because
 CHARTER §5.1 keeps the patch for fixes only.
