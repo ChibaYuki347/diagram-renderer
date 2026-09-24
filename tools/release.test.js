@@ -244,6 +244,45 @@ test('recovery rejects a cut whose diff mentions a change file but leaves it pre
   assert.equal(ctx.github.writes.length, 0);
 });
 
+test('a change pushed straight to main fails the run, publishing nothing, until a pull request renames it', async (t) => {
+  const ctx = setup(t, { changes: false });
+  put(ctx.root, 'changes/direct.md', changeFile('fixed', 'Pushed straight to main.'));
+  git(ctx.root, 'add', '.');
+  git(ctx.root, 'commit', '-m', 'pushed straight to main');
+  git(ctx.root, 'push', 'origin', 'main');
+  const before = remoteRef(ctx.root, 'refs/heads/main');
+  await assert.rejects(runRelease(ctx), /Release refused: changes\/direct\.md did not arrive through a pull request/);
+  assert.equal(remoteRef(ctx.root, 'refs/heads/main'), before);
+  assert.equal(remoteRef(ctx.root, 'refs/tags/v0.6.1'), undefined);
+  assert.equal(ctx.github.writes.length, 0);
+  git(ctx.root, 'checkout', '-q', '-b', 'number-it');
+  git(ctx.root, 'mv', 'changes/direct.md', 'changes/direct-1.md');
+  git(ctx.root, 'commit', '-m', 'number it');
+  git(ctx.root, 'checkout', '-q', 'main');
+  git(ctx.root, 'merge', '--no-ff', '-m', 'chore: number a change (#21)', 'number-it');
+  git(ctx.root, 'push', 'origin', 'main');
+  const result = await runRelease(ctx);
+  assert.equal(result.kind, 'released');
+  assert.equal(ctx.github.writes[0].body, '### Fixed\n\n- Pushed straight to main. (#21)');
+});
+
+test('a removal past 1.0.0 fails the run rather than leaving it green', async (t) => {
+  const ctx = setup(t, { changes: false });
+  const manifest = `${JSON.stringify({ name: 'fixture', version: '1.0.0', private: true }, null, 2)}\n`;
+  for (const file of MANIFESTS) put(ctx.root, file, manifest);
+  put(ctx.root, 'CHANGELOG.md', BASE_LOG.replace('0.6.0', '1.0.0'));
+  git(ctx.root, 'add', '.');
+  git(ctx.root, 'commit', '-m', 'release 1.0.0 by hand');
+  git(ctx.root, 'tag', 'v1.0.0');
+  ctx.github.releases.set('v1.0.0', { tag_name: 'v1.0.0', body: 'By hand', draft: false, prerelease: false });
+  put(ctx.root, 'changes/drop.md', changeFile('removed', 'Drop an option.'));
+  git(ctx.root, 'add', '.');
+  git(ctx.root, 'commit', '-m', 'feat!: drop an option (#30)');
+  git(ctx.root, 'push', 'origin', 'main', 'v1.0.0');
+  await assert.rejects(runRelease(ctx), /Release refused: changes\/drop\.md is a removal past 1\.0\.0/);
+  assert.equal(ctx.github.writes.length, 0);
+});
+
 test('the release CLI refuses push events before any GitHub or git work', () => {
   const result = cp.spawnSync(process.execPath, [path.join(__dirname, 'release.js')], {
     cwd: ROOT,

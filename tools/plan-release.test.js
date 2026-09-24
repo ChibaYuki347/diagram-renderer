@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { test } = require('node:test');
 const {
-  MANIFESTS, LOCK, versionParts, parseChangelog, readState, planRelease, applyPlan, renderSection, releaseNotes, nextVersion,
+  MANIFESTS, LOCK, versionParts, parseChangelog, readState, planRelease, applyPlan, renderSection, releaseNotes, nextVersion, releaseDate,
 } = require('./plan-release');
 const { problemsOf } = require('./changes');
 
@@ -80,17 +80,60 @@ test('manual version validation remains exact next-major only', () => {
   assert.throws(() => versionParts('99999999999999999999.0.0'), /safe integer/);
 });
 
-test('past 1.0 removed and breaking changes refuse automatic release; below 1.0 they release', () => {
+test('past 1.0 removed and breaking changes refuse automatic release; below 1.0 both take the minor', () => {
   const removed = state(files({ version: '1.2.3', changelog: LOG.replaceAll('0.6.0', '1.2.3'), changes: { 'changes/drop.md': changeFile('removed', 'Drop an option.') } }));
   let plan = planRelease(removed, { date: DATE });
-  assert.equal(plan.kind, 'noop');
+  assert.equal(plan.kind, 'refused');
   assert.match(plan.reason, /only a person takes the major/);
   const breaking = state(files({ version: '1.2.3', changelog: LOG.replaceAll('0.6.0', '1.2.3'), changes: { 'changes/break.md': changeFile('changed', 'Rename a key.', true) } }));
   plan = planRelease(breaking, { date: DATE });
-  assert.equal(plan.kind, 'noop');
+  assert.equal(plan.kind, 'refused');
   assert.match(plan.reason, /only a person takes the major/);
   assert.equal(planRelease(state(files({ changes: { 'changes/drop.md': changeFile('removed', 'Drop.') } })), { date: DATE }).version, '0.7.0');
-  assert.equal(planRelease(state(files({ changes: { 'changes/break.md': changeFile('changed', 'Break.', true) } })), { date: DATE }).version, '0.6.1');
+  // CHARTER §5.1: below 1.0.0 a breaking change takes the minor, whatever its type.
+  for (const type of ['changed', 'fixed']) {
+    const minor = planRelease(state(files({ changes: { 'changes/fix.md': changeFile('fixed', 'A fix.'), 'changes/break.md': changeFile(type, 'Break.', true) } })), { date: DATE });
+    assert.equal(minor.bump, 'minor', `a breaking ${type} change`);
+    assert.equal(minor.version, '0.7.0', `a breaking ${type} change`);
+  }
+});
+
+test('with requirePrs, a change whose pull request is unknown is refused, naming it and the way out', () => {
+  const map = files({ changes: { 'changes/a.md': changeFile('fixed', 'Numbered.'), 'changes/b.md': changeFile('added', 'Pushed straight to main.') } });
+  const plan = planRelease(state(map, { 'changes/a.md': 12 }), { date: DATE, requirePrs: true });
+  assert.equal(plan.kind, 'refused');
+  assert.match(plan.reason, /^changes\/b\.md did not arrive through a pull request.*Rename it in a pull request/);
+  assert.equal(planRelease(state(map, { 'changes/a.md': 12, 'changes/b.md': 13 }), { date: DATE, requirePrs: true }).kind, 'release');
+  assert.equal(planRelease(state(map), { date: DATE }).kind, 'release', 'a direct caller may still render an unnumbered line');
+});
+
+test('a release is dated in Tokyo: every run release.yml schedules is dated the JST weekday it runs on', () => {
+  const yml = fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'release.yml'), 'utf8').replace(/\r\n/g, '\n');
+  const [minute, hour, from, to] = (/- cron: '(\d+) (\d+) \* \* (\d)-(\d)'/.exec(yml) || []).slice(1).map(Number);
+  assert.ok(Number.isInteger(to), 'release.yml has no cron of the form `m h * * a-b`');
+  let runs = 0;
+  for (let day = 1; day <= 31; day++) {
+    const at = new Date(Date.UTC(2026, 9, day, hour, minute));
+    if (at.getUTCDay() < from || at.getUTCDay() > to) continue;
+    runs += 1;
+    const tokyo = new Date(at.getTime() + 9 * 3600 * 1000);
+    assert.equal(releaseDate(at), tokyo.toISOString().slice(0, 10), at.toISOString());
+    assert.notEqual(releaseDate(at), at.toISOString().slice(0, 10), `${at.toISOString()} has the same UTC date, so this proves nothing`);
+    assert.ok(tokyo.getUTCDay() >= 1 && tokyo.getUTCDay() <= 5, `${at.toISOString()} is not a JST weekday`);
+  }
+  assert.ok(runs >= 20, `only ${runs} scheduled runs in the month`);
+  assert.equal(releaseDate(new Date('2026-10-31T20:30:00Z')), '2026-11-01');
+  assert.equal(releaseDate(new Date('2026-12-31T15:00:00Z')), '2027-01-01');
+  assert.equal(releaseDate(new Date('2026-12-31T14:59:59Z')), '2026-12-31');
+  // release.js passes no date, so the planner's own default is what dates a run.
+  // Checked with the clock at a scheduled run's instant, where the UTC and JST
+  // dates differ; at most hours of the day they agree and would prove nothing.
+});
+
+test('the planner, given no date, dates a scheduled run with that run\'s JST day', (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-09-24T20:30:00Z') });
+  const undated = planRelease(state(files({ changes: { 'changes/x.md': changeFile('fixed', 'Fix.') } })));
+  assert.equal(undated.date, '2026-09-25');
 });
 
 test('unreadable, unknown-type, empty and multi-line changes throw naming the file', () => {

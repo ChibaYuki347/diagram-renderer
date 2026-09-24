@@ -42,7 +42,9 @@
 //
 // `type` is `added`, `changed`, `fixed` or `removed`: the Keep a Changelog
 // headings the generated section is written under. `breaking` is true for a
-// change that breaks a caller, which Keep a Changelog has no heading for.
+// change that breaks a caller, which Keep a Changelog has no heading for: below
+// 1.0.0 it takes the minor, whatever its type (CHARTER §5.1), and past 1.0.0 it
+// stops an automatic release, because only a person takes a major.
 // `summary` is the one line the changelog prints; the details belong to the pull
 // request, which the line links to. The file format that carries these is the
 // CHARTER's (§5.4); a repository parses it, and these rules judge what it says.
@@ -58,6 +60,7 @@ const ADD = change('added', 'A new layout.');
 const DROP = change('removed', 'Drop the legacy loader.');
 const REWRITE = change('changed', 'Rewrite the planner end to end.');
 const BREAK = change('changed', 'render() no longer accepts a string.', { breaking: true });
+const BREAKFIX = change('fixed', 'The default width is now the one the docs give, which callers relied on.', { breaking: true });
 
 const CASES = [
   // ---- which bump the changes ask for --------------------------------------
@@ -77,6 +80,17 @@ const CASES = [
   },
   { name: 'bump/a-day-of-changes-takes-the-largest', version: '0.4.0', changes: [FIX, ADD, REWRITE],
     expect: { release: true, bump: 'minor', version: '0.5.0' } },
+  {
+    // CHARTER §5.1: below 1.0.0 "breaking changes happen in minor bumps", and a
+    // patch is for fixes only. So `breaking` takes the minor whatever the type
+    // says. Two types, because a `changed` one alone would also pass a planner
+    // that reads `changed` as a minor, and a `fixed` one is the patch a
+    // breaking change would otherwise ship as.
+    name: 'bump/breaking-below-1.0-takes-the-minor', version: '0.4.0', changes: [BREAK],
+    expect: { release: true, bump: 'minor', version: '0.5.0' },
+  },
+  { name: 'bump/a-breaking-fix-below-1.0-takes-the-minor', version: '0.4.0', changes: [FIX, BREAKFIX],
+    expect: { release: true, bump: 'minor', version: '0.5.0' } },
 
   // ---- when there is nothing to release ------------------------------------
   { name: 'idle/no-change-files-does-not-release', version: '0.4.0', changes: [],
@@ -89,8 +103,6 @@ const CASES = [
     expect: { release: false } },
   { name: 'major/breaking-past-1.0-is-refused', version: '1.2.0', changes: [BREAK],
     expect: { release: false } },
-  { name: 'major/breaking-below-1.0-still-releases', version: '0.4.0', changes: [BREAK],
-    expect: { release: true, bump: 'patch', version: '0.4.1' } },
 
   // ---- a release never waits for work that is still open -------------------
   {

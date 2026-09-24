@@ -38,12 +38,26 @@ does not introduce it into the release commit unless it is already tracked.
 
 | Change files on `main` | Automatic choice |
 | --- | --- |
-| Any `type: added` or `type: removed` | Next minor, patch reset to zero |
-| Only `type: changed` and/or `type: fixed` | Next patch |
-| No change files | No-op |
+| Any `type: added` or `type: removed`, or below 1.0.0 any `breaking: true` | Next minor, patch reset to zero |
+| Only `type: changed` and/or `type: fixed`, none breaking | Next patch |
+| No change files | No-op: the only quiet "no" |
 
-Past 1.0.0, `type: removed` or `breaking: true` refuses the automatic release.
-Only a person takes the major.
+A breaking change takes the minor below 1.0.0 whatever its type, because
+CHARTER §5.1 keeps the patch for fixes only.
+
+Every other "no" fails the run, so the failed workflow is what tells a person:
+a scheduled run that stayed green would retry it every morning with nobody
+told.
+
+- Past 1.0.0, `type: removed` or `breaking: true` refuses the automatic
+  release. Only a person takes the major.
+- A change file whose commit names no pull request — pushed to `main`
+  directly — is refused, because every released line links its pull request
+  and a released line is not edited afterwards. Renaming the file in a pull
+  request (`git mv changes/x.md changes/x-1.md`) makes that pull request the
+  one that added it.
+- A release is dated in Tokyo: 05:30 JST is 20:30 UTC the day before, and a
+  UTC date would stamp every scheduled release a day early.
 
 ## Taking the major
 
