@@ -145,6 +145,16 @@ function validateDate(date) {
   }
 }
 
+// The date a release is dated with: Tokyo's, not UTC's. The schedule is 05:30
+// JST, which is 20:30 UTC the calendar day before, so a UTC date would stamp
+// every scheduled release one day early (Friday morning's as Thursday). Japan
+// keeps no daylight saving time, so the offset is fixed. release.js plans once
+// per run, so one run has one date.
+const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
+function releaseDate(now = new Date()) {
+  return new Date(now.getTime() + JST_OFFSET_MS).toISOString().slice(0, 10);
+}
+
 function entryLine(change, pr) {
   return `- ${change.breaking ? '**BREAKING**: ' : ''}${change.summary.trim()}${pr ? ` (#${pr})` : ''}`;
 }
@@ -195,7 +205,10 @@ function plannedDocumentChanges(state, next, changelog, files) {
   return changes;
 }
 
-function planRelease(state, { version = '', allowMajor = false, date = new Date().toISOString().slice(0, 10) } = {}) {
+// `kind: 'refused'` is every "no" a person has to act on; `noop` is only a day
+// with no change files. release.js fails the run on a refusal, because a
+// scheduled run that stayed green would retry it every morning with nobody told.
+function planRelease(state, { version = '', allowMajor = false, date = releaseDate(), requirePrs = false } = {}) {
   const current = versionParts(state.version);
   let requested = version || '';
   let bump = '';
@@ -217,14 +230,32 @@ function planRelease(state, { version = '', allowMajor = false, date = new Date(
   const problems = state.changes.flatMap(problemsOf);
   if (problems.length) throw new Error(`${problems.length} change file problem(s): ${problems[0]}`);
 
+  // Every line the release writes links its pull request, and a released line is
+  // not edited afterwards, so a change that arrived with no pull request number
+  // is refused before anything is written. A file pushed to `main` directly is
+  // numbered by renaming it in a pull request: the rename is then the commit that
+  // added the new name (`git log --first-parent --diff-filter=A`, for a merge
+  // commit and a squash alike).
+  if (requirePrs) {
+    const unnumbered = state.changes.filter((change) => !(state.prs || {})[change.file]).map((change) => change.file);
+    if (unnumbered.length) {
+      return {
+        kind: 'refused',
+        current: state.version,
+        reason: `${unnumbered.join(', ')} did not arrive through a pull request, so its line would link none. `
+          + 'Rename it in a pull request (git mv changes/<name>.md changes/<name>-1.md), and that pull request numbers it',
+      };
+    }
+  }
+
   if (!requested && current[0] >= 1) {
     const removed = state.changes.find((change) => change.type === 'removed');
     if (removed) {
-      return { kind: 'noop', current: state.version, reason: `${removed.file} is a removal past 1.0.0, and only a person takes the major` };
+      return { kind: 'refused', current: state.version, reason: `${removed.file} is a removal past 1.0.0, and only a person takes the major` };
     }
     const breaking = state.changes.find((change) => change.breaking);
     if (breaking) {
-      return { kind: 'noop', current: state.version, reason: `${breaking.file} is breaking past 1.0.0, and only a person takes the major` };
+      return { kind: 'refused', current: state.version, reason: `${breaking.file} is breaking past 1.0.0, and only a person takes the major` };
     }
   }
 
@@ -288,6 +319,7 @@ module.exports = {
   renderSection,
   writeSection,
   releaseNotes,
+  releaseDate,
   planRelease,
   applyPlan,
 };
