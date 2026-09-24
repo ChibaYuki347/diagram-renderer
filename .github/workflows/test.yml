@@ -43,7 +43,7 @@ jobs:
         run: node tools/plan-release.js --check
 
       - name: Test release tooling offline
-        run: node --test tools/plan-release.test.js tools/release.test.js
+        run: node --test tools/plan-release.test.js tools/release.test.js tools/changes.test.js
 
       # The shared release rules. tools/release-conformance.js is vendored from
       # chibayuki-private-marketplace and is byte-identical in every plugin repo

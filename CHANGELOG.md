@@ -4,7 +4,16 @@ All notable changes to `diagram-renderer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+**This file is written by the release, not by hand.** A pull request adds one
+file of its own, `changes/<name>.md` — a `type` (`added`, `changed`, `fixed` or
+`removed`) and one line — and edits nothing here; `changes/README.md` says how.
+Once a working day the release reads the change files on `main`, writes the
+dated section from them, one line per change ending in its pull request's
+number, and deletes them. The details of a change are in its pull request.
+`added` and `removed` take the minor and anything else the patch; past 1.0.0 a
+removal or a change marked `breaking: true` stops the automatic release and
+sends it to the typed-major path in `RELEASING.md`. Sections up to 0.6.0 were
+written by hand under `## [Unreleased]`, and read as they were written.
 
 ## [0.6.0] — 2026-09-18
 

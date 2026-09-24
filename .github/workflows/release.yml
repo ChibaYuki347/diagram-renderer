@@ -1,8 +1,8 @@
 name: release
 
 on:
-  push:
-    branches: [main]
+  schedule:
+    - cron: '30 20 * * 0-4'
   workflow_dispatch:
     inputs:
       version:
@@ -13,7 +13,6 @@ on:
 
 permissions:
   contents: write
-  pull-requests: read
 
 concurrency:
   group: release-main
@@ -21,11 +20,7 @@ concurrency:
 
 jobs:
   release:
-    if: >-
-      github.ref == 'refs/heads/main' &&
-      (github.event_name != 'push' ||
-        !(github.actor == 'github-actions[bot]' &&
-          startsWith(github.event.head_commit.message, 'chore(release): ')))
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       # Resolve main after waiting for concurrency, not the queued event SHA.
@@ -40,10 +35,13 @@ jobs:
           node-version: '20'
 
       - name: Test release tooling offline
-        run: node --test tools/plan-release.test.js tools/release.test.js
+        run: node --test tools/plan-release.test.js tools/release.test.js tools/changes.test.js tools/release-conformance.test.js
 
       - name: Validate repository versions and changelog
         run: node tools/plan-release.js --check
+
+      - name: Validate change files
+        run: node tools/changes.js --check
 
       - name: Install dependencies and run renderer unit tests
         working-directory: skills/diagram-renderer
@@ -54,7 +52,7 @@ jobs:
       - name: Plan, validate cut, atomically push and publish
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_VERSION: ${{ github.event.inputs.version }}
         run: |
           set -euo pipefail
           release_auth_header="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
