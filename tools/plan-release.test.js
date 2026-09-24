@@ -80,7 +80,7 @@ test('manual version validation remains exact next-major only', () => {
   assert.throws(() => versionParts('99999999999999999999.0.0'), /safe integer/);
 });
 
-test('past 1.0 removed and breaking changes refuse automatic release; below 1.0 they release', () => {
+test('past 1.0 removed and breaking changes refuse automatic release; below 1.0 both take the minor', () => {
   const removed = state(files({ version: '1.2.3', changelog: LOG.replaceAll('0.6.0', '1.2.3'), changes: { 'changes/drop.md': changeFile('removed', 'Drop an option.') } }));
   let plan = planRelease(removed, { date: DATE });
   assert.equal(plan.kind, 'refused');
@@ -90,7 +90,12 @@ test('past 1.0 removed and breaking changes refuse automatic release; below 1.0 
   assert.equal(plan.kind, 'refused');
   assert.match(plan.reason, /only a person takes the major/);
   assert.equal(planRelease(state(files({ changes: { 'changes/drop.md': changeFile('removed', 'Drop.') } })), { date: DATE }).version, '0.7.0');
-  assert.equal(planRelease(state(files({ changes: { 'changes/break.md': changeFile('changed', 'Break.', true) } })), { date: DATE }).version, '0.6.1');
+  // CHARTER §5.1: below 1.0.0 a breaking change takes the minor, whatever its type.
+  for (const type of ['changed', 'fixed']) {
+    const minor = planRelease(state(files({ changes: { 'changes/fix.md': changeFile('fixed', 'A fix.'), 'changes/break.md': changeFile(type, 'Break.', true) } })), { date: DATE });
+    assert.equal(minor.bump, 'minor', `a breaking ${type} change`);
+    assert.equal(minor.version, '0.7.0', `a breaking ${type} change`);
+  }
 });
 
 test('with requirePrs, a change whose pull request is unknown is refused, naming it and the way out', () => {

@@ -15,9 +15,10 @@ Correct a rendering offset.
 - **`type`** is the Keep a Changelog heading the line is written under, and it is
   the version bump: `added` and `removed` take the minor; `changed` and `fixed`
   take the patch.
-- **`breaking: true`** marks a change that breaks a caller. Past 1.0.0 it, or
-  `type: removed`, stops the automatic release; a person takes the major by
-  dispatching the release workflow with the exact next major.
+- **`breaking: true`** marks a change that breaks a caller. Below 1.0.0 it takes
+  the minor, whatever the `type` (CHARTER §5.1: a patch is for fixes only).
+  Past 1.0.0 it, or `type: removed`, stops the automatic release; a person
+  takes the major by dispatching the release workflow with the exact next major.
 - **The body is one line**: what changed, for someone reading the changelog. It
   is printed as it is, followed by the pull request's number. The details belong
   in the pull request.

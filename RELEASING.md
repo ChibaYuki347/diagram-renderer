@@ -38,9 +38,12 @@ does not introduce it into the release commit unless it is already tracked.
 
 | Change files on `main` | Automatic choice |
 | --- | --- |
-| Any `type: added` or `type: removed` | Next minor, patch reset to zero |
-| Only `type: changed` and/or `type: fixed` | Next patch |
+| Any `type: added` or `type: removed`, or below 1.0.0 any `breaking: true` | Next minor, patch reset to zero |
+| Only `type: changed` and/or `type: fixed`, none breaking | Next patch |
 | No change files | No-op: the only quiet "no" |
+
+A breaking change takes the minor below 1.0.0 whatever its type, because
+CHARTER §5.1 keeps the patch for fixes only.
 
 Every other "no" fails the run, so the failed workflow is what tells a person:
 a scheduled run that stayed green would retry it every morning with nobody

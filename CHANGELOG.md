@@ -10,7 +10,8 @@ file of its own, `changes/<name>.md` — a `type` (`added`, `changed`, `fixed` o
 Once a working day the release reads the change files on `main`, writes the
 dated section from them, one line per change ending in its pull request's
 number, and deletes them. The details of a change are in its pull request.
-`added` and `removed` take the minor and anything else the patch; past 1.0.0 a
+`added` and `removed` take the minor and anything else the patch, except that
+below 1.0.0 a change marked `breaking: true` takes the minor too; past 1.0.0 a
 removal or a change marked `breaking: true` stops the automatic release and
 sends it to the typed-major path in `RELEASING.md`. Sections up to 0.6.0 were
 written by hand under `## [Unreleased]`, and read as they were written.

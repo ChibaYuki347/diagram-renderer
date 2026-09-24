@@ -128,8 +128,12 @@ function readState(
   return { version, documents, changelog, changes, prs };
 }
 
+// `added` and `removed` take the minor, `changed` and `fixed` the patch. Past
+// 1.0.0 a breaking change is refused before this is asked; below it, CHARTER
+// §5.1 puts a breaking change in a minor bump whatever its type, because a patch
+// is for fixes only.
 function deriveBump(changes) {
-  return changes.some((change) => change.type === 'added' || change.type === 'removed') ? 'minor' : 'patch';
+  return changes.some((change) => change.type === 'added' || change.type === 'removed' || change.breaking) ? 'minor' : 'patch';
 }
 
 function nextVersion(current, bump) {
