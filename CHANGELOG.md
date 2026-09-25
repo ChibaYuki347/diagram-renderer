@@ -16,6 +16,19 @@ removal or a change marked `breaking: true` stops the automatic release and
 sends it to the typed-major path in `RELEASING.md`. Sections up to 0.6.0 were
 written by hand under `## [Unreleased]`, and read as they were written.
 
+## [0.6.1] — 2026-09-25
+
+### Changed
+
+- Changelog entries come from one change file per pull request, and a release is cut once a working day instead of on every merge. (#6)
+- A release asks the marketplace to pin it as soon as it is published, instead of waiting for the marketplace's own schedule, which GitHub starts hours late and in no fixed order. (#8)
+
+### Fixed
+
+- Below 1.0.0 a change marked `breaking: true` releases as a minor, as CHARTER §5.1 asks, rather than as a patch. (#7)
+- A scheduled release is dated with the Tokyo day it runs on, fails instead of staying green when only a person can release, and refuses a change that arrived without a pull request. (#7)
+- The first release after change files no longer fails on v0.6.0: a tag cut before them, from a hand-written `## [Unreleased]`, is read as published rather than verified as a cut this planner made. (#9)
+
 ## [0.6.0] — 2026-09-18
 
 ### Added
