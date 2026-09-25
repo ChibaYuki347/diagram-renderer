@@ -228,6 +228,8 @@ test('release.yml asks the marketplace to pin what it published, on every run so
     const refused = run('t0ken', 1);
     assert.notEqual(refused.status, 0, 'a dispatch that fails leaves the run green');
     assert.doesNotMatch(refused.summary, /Asked/);
+    assert.match(refused.out, /::error::ChibaYuki347\/chibayuki-private-marketplace was not asked to pin v9\.9\.9; the release itself stands\. Check MARKETPLACE_DISPATCH_TOKEN: its repository access must include ChibaYuki347\/chibayuki-private-marketplace, with Actions: Read and write\./);
+    assert.match(refused.summary, /the request failed/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
