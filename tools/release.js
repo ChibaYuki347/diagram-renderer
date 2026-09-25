@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const { MANIFESTS, readState, planRelease, applyPlan } = require('./plan-release');
+const { MANIFESTS, LOCK, readState, planRelease, applyPlan } = require('./plan-release');
 const { prFromSubject } = require('./changes');
 const { fromEnvironment } = require('./github');
 
@@ -128,8 +128,18 @@ async function inspectPublication(root, github, state) {
   // is the version its manifest says; published, it is done, and unpublished, a
   // person has to look.
   if (!objectExists(root, commit, 'changes/README.md')) {
-    const version = JSON.parse(git(root, 'show', `${commit}:${MANIFESTS[0]}`)).version;
-    if (version !== state.version) throw new Error(`${tag} does not contain version ${state.version}`);
+    // Every manifest, and the lock where the tag tracks one, agrees on the
+    // version, as readState asks of any state; only the CHANGELOG is not read.
+    const at = (file) => JSON.parse(git(root, 'show', `${commit}:${file}`));
+    for (const file of MANIFESTS) {
+      if (at(file).version !== state.version) throw new Error(`${tag} does not contain version ${state.version} in ${file}`);
+    }
+    if (objectExists(root, commit, LOCK)) {
+      const lock = at(LOCK);
+      if (lock.version !== state.version || (lock.lockfileVersion >= 2 && lock.packages?.['']?.version !== state.version)) {
+        throw new Error(`${tag} does not contain version ${state.version} in ${LOCK}`);
+      }
+    }
     if (!release) throw new Error(`${tag} predates change files and has no release; manual investigation required`);
     if (release.tag_name !== tag || release.draft || release.prerelease) throw new Error(`Conflicting release state for ${tag}`);
     return { kind: 'published', tag, commit };

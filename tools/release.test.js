@@ -286,7 +286,7 @@ test('a removal past 1.0.0 fails the run rather than leaving it green', async (t
 // The repository's own history: v0.6.0 was cut by the release before change
 // files (#6), from a hand-written `## [Unreleased]`, and is published. The
 // first release after #6 has to read that tag as done, not as a cut to verify.
-function legacySetup(t, { published = true, taggedVersion = '0.6.0' } = {}) {
+function legacySetup(t, { published = true, taggedVersion = '0.6.0', drift = null, lock = null } = {}) {
   const temp = tmp(t, 'legacy');
   const remote = path.join(temp, 'origin.git');
   const root = path.join(temp, 'work');
@@ -303,13 +303,15 @@ function legacySetup(t, { published = true, taggedVersion = '0.6.0' } = {}) {
   git(root, 'add', '.');
   git(root, 'commit', '-m', 'feat: by hand (#4)');
   const base = git(root, 'rev-parse', 'HEAD');
-  for (const file of MANIFESTS) put(root, file, manifest(taggedVersion));
+  for (const file of MANIFESTS) put(root, file, manifest(file === drift ? '0.5.9' : taggedVersion));
+  if (lock) put(root, LOCK, `${JSON.stringify(lock, null, 2)}\n`);
   put(root, 'CHANGELOG.md', BASE_LOG.replace('Preamble.\n\n', 'Preamble.\n\n## [Unreleased]\n\n'));
   git(root, 'add', '.');
   git(root, 'commit', '-m', `chore(release): v0.6.0\n\nRelease-Version: 0.6.0\nRelease-Base: ${base}`);
   git(root, 'tag', '-a', 'v0.6.0', '-m', 'Release v0.6.0');
   // #6: change files arrive, and the heading goes.
   for (const file of MANIFESTS) put(root, file, manifest('0.6.0'));
+  if (lock) put(root, LOCK, `${JSON.stringify({ ...lock, version: '0.6.0', packages: { '': { version: '0.6.0' } } }, null, 2)}\n`);
   put(root, 'CHANGELOG.md', BASE_LOG);
   put(root, 'changes/README.md', '# how\n');
   git(root, 'add', '.');
@@ -346,8 +348,19 @@ test('a hand-written tag with no release is left to a person, not published or v
 
 test('a hand-written tag whose manifest names another version is refused', async (t) => {
   const ctx = legacySetup(t, { taggedVersion: '0.5.9' });
-  await assert.rejects(runRelease(ctx), /v0\.6\.0 does not contain version 0\.6\.0/);
+  await assert.rejects(runRelease(ctx), /v0\.6\.0 does not contain version 0\.6\.0 in \.plugin\/plugin\.json/);
   assert.equal(ctx.github.writes.length, 0);
+});
+
+test('and so is one where any manifest, or the tracked lock, disagrees with the others', async (t) => {
+  const second = legacySetup(t, { drift: MANIFESTS[MANIFESTS.length - 1] });
+  await assert.rejects(runRelease(second), new RegExp(`v0\\.6\\.0 does not contain version 0\\.6\\.0 in ${MANIFESTS[MANIFESTS.length - 1].replace(/[./]/g, '\\$&')}`));
+  const lock = legacySetup(t, { lock: { name: 'fixture', version: '0.5.9', lockfileVersion: 3, packages: { '': { version: '0.5.9' } } } });
+  await assert.rejects(runRelease(lock), /v0\.6\.0 does not contain version 0\.6\.0 in skills\/diagram-renderer\/package-lock\.json/);
+  const root = legacySetup(t, { lock: { name: 'fixture', version: '0.6.0', lockfileVersion: 3, packages: { '': { version: '0.5.9' } } } });
+  await assert.rejects(runRelease(root), /in skills\/diagram-renderer\/package-lock\.json/);
+  const fine = legacySetup(t, { lock: { name: 'fixture', version: '0.6.0', lockfileVersion: 3, packages: { '': { version: '0.6.0' } } } });
+  assert.equal((await runRelease(fine)).tag, 'v0.6.1', 'a tag whose lock agrees is released past');
 });
 
 test('the release CLI refuses push events before any GitHub or git work', () => {
