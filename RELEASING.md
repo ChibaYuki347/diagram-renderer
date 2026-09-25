@@ -133,7 +133,12 @@ only, and **Actions: Read and write** as its only permission. It cannot read or
 write that repository's contents. It can manage Actions there, though: start,
 re-run, cancel and delete workflow runs. Treat a leak as that. Without it, a
 run that published something leaves a warning and a line in its summary, and
-the release still stands. With it, a dispatch that fails turns the run red.
+the release still stands. With it, a dispatch that fails turns the run red, and the error names
+what to check. microsoft-brand-guidelines' 1.0.0 run failed this way with `HTTP
+403: Resource not accessible by personal access token`, from a token whose
+access did not reach the marketplace's Actions. Fix the token (editing a
+fine-grained token's access keeps its value), then run the workflow again. A
+run with nothing left to publish still asks.
 
 ## Offline checks
 

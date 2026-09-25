@@ -101,5 +101,9 @@ jobs:
             fi
             exit 0
           fi
-          gh workflow run sync-plugin-refs.yml --repo "$MARKETPLACE" --ref main
+          if ! gh workflow run sync-plugin-refs.yml --repo "$MARKETPLACE" --ref main; then
+            echo "::error::$MARKETPLACE was not asked to pin ${TAG:-the latest release}; the release itself stands. Check MARKETPLACE_DISPATCH_TOKEN: its repository access must include $MARKETPLACE, with Actions: Read and write. Then run this workflow again; a run with nothing to publish still asks."
+            echo "The marketplace was not asked to pin ${TAG:-the latest release}: the request failed. See the error above." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
           echo "Asked $MARKETPLACE to sync (sync-plugin-refs)${TAG:+ and pin $TAG}." >> "$GITHUB_STEP_SUMMARY"
