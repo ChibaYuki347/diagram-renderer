@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const { readState, planRelease, applyPlan } = require('./plan-release');
+const { MANIFESTS, readState, planRelease, applyPlan } = require('./plan-release');
 const { prFromSubject } = require('./changes');
 const { fromEnvironment } = require('./github');
 
@@ -121,6 +121,19 @@ async function inspectPublication(root, github, state) {
   const release = await github.release(tag);
   if (!commit) throw new Error(`${tag} is missing on origin; do not guess a release commit or retag main`);
   git(root, 'merge-base', '--is-ancestor', commit, 'HEAD');
+  // A tag cut before change files (#6) holds a CHANGELOG with the hand-written
+  // `## [Unreleased]` heading that this planner refuses, and no plan of this
+  // planner made it, so it cannot be read as a state or verified as a cut.
+  // Measured: the first scheduled run after #6 failed here on v0.6.0. Such a tag
+  // is the version its manifest says; published, it is done, and unpublished, a
+  // person has to look.
+  if (!objectExists(root, commit, 'changes/README.md')) {
+    const version = JSON.parse(git(root, 'show', `${commit}:${MANIFESTS[0]}`)).version;
+    if (version !== state.version) throw new Error(`${tag} does not contain version ${state.version}`);
+    if (!release) throw new Error(`${tag} predates change files and has no release; manual investigation required`);
+    if (release.tag_name !== tag || release.draft || release.prerelease) throw new Error(`Conflicting release state for ${tag}`);
+    return { kind: 'published', tag, commit };
+  }
   const tagged = readAt(root, commit);
   if (tagged.version !== state.version) throw new Error(`${tag} does not contain version ${state.version}`);
   const managed = git(root, 'show', '-s', '--format=%B', commit).startsWith('chore(release): ');

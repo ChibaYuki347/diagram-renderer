@@ -283,6 +283,73 @@ test('a removal past 1.0.0 fails the run rather than leaving it green', async (t
   assert.equal(ctx.github.writes.length, 0);
 });
 
+// The repository's own history: v0.6.0 was cut by the release before change
+// files (#6), from a hand-written `## [Unreleased]`, and is published. The
+// first release after #6 has to read that tag as done, not as a cut to verify.
+function legacySetup(t, { published = true, taggedVersion = '0.6.0' } = {}) {
+  const temp = tmp(t, 'legacy');
+  const remote = path.join(temp, 'origin.git');
+  const root = path.join(temp, 'work');
+  fs.mkdirSync(root);
+  git(temp, 'init', '--bare', remote);
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Release test');
+  git(root, 'config', 'user.email', 'test@example.invalid');
+  git(root, 'config', 'core.autocrlf', 'false');
+  git(root, 'remote', 'add', 'origin', remote);
+  const manifest = (v) => `${JSON.stringify({ name: 'fixture', version: v, private: true }, null, 2)}\n`;
+  for (const file of MANIFESTS) put(root, file, manifest('0.5.0'));
+  put(root, 'CHANGELOG.md', '# Changelog\n\n## [Unreleased]\n\n### Added\n\n- By hand.\n\n## [0.5.0] — 2026-09-17\n\n### Added\n\n- Older.\n');
+  git(root, 'add', '.');
+  git(root, 'commit', '-m', 'feat: by hand (#4)');
+  const base = git(root, 'rev-parse', 'HEAD');
+  for (const file of MANIFESTS) put(root, file, manifest(taggedVersion));
+  put(root, 'CHANGELOG.md', BASE_LOG.replace('Preamble.\n\n', 'Preamble.\n\n## [Unreleased]\n\n'));
+  git(root, 'add', '.');
+  git(root, 'commit', '-m', `chore(release): v0.6.0\n\nRelease-Version: 0.6.0\nRelease-Base: ${base}`);
+  git(root, 'tag', '-a', 'v0.6.0', '-m', 'Release v0.6.0');
+  // #6: change files arrive, and the heading goes.
+  for (const file of MANIFESTS) put(root, file, manifest('0.6.0'));
+  put(root, 'CHANGELOG.md', BASE_LOG);
+  put(root, 'changes/README.md', '# how\n');
+  git(root, 'add', '.');
+  git(root, 'commit', '-m', 'feat: changelog entries from change files (#6)');
+  git(root, 'checkout', '-q', '-b', 'fix-b');
+  put(root, 'changes/fix-b.md', changeFile('fixed', 'Correct an offset.'));
+  git(root, 'add', '.');
+  git(root, 'commit', '-m', 'add a change file');
+  git(root, 'checkout', '-q', 'main');
+  git(root, 'merge', '--no-ff', '-m', 'fix: an offset (#7)', 'fix-b');
+  git(root, 'push', 'origin', 'main', 'v0.6.0');
+  const github = githubFixture();
+  if (!published) github.releases.delete('v0.6.0');
+  return { root, remote, temp, github, date: DATE };
+}
+
+test('the first release after change files reads the hand-written v0.6.0 as published, and releases what came after', async (t) => {
+  const ctx = legacySetup(t);
+  const result = await runRelease(ctx);
+  assert.equal(result.kind, 'released');
+  assert.equal(result.tag, 'v0.6.1');
+  assert.equal(ctx.github.writes[0].body, '### Fixed\n\n- Correct an offset. (#7)');
+  const again = await runRelease(ctx);
+  assert.equal(again.kind, 'noop', 'the cut this planner made is then verified as one');
+  assert.equal(ctx.github.writes.length, 1);
+});
+
+test('a hand-written tag with no release is left to a person, not published or verified', async (t) => {
+  const ctx = legacySetup(t, { published: false });
+  await assert.rejects(runRelease(ctx), /v0\.6\.0 predates change files and has no release; manual investigation required/);
+  assert.equal(ctx.github.writes.length, 0);
+  assert.equal(remoteRef(ctx.root, 'refs/tags/v0.6.1'), undefined);
+});
+
+test('a hand-written tag whose manifest names another version is refused', async (t) => {
+  const ctx = legacySetup(t, { taggedVersion: '0.5.9' });
+  await assert.rejects(runRelease(ctx), /v0\.6\.0 does not contain version 0\.6\.0/);
+  assert.equal(ctx.github.writes.length, 0);
+});
+
 test('the release CLI refuses push events before any GitHub or git work', () => {
   const result = cp.spawnSync(process.execPath, [path.join(__dirname, 'release.js')], {
     cwd: ROOT,
