@@ -1,9 +1,9 @@
 # Icon library licensing
 
 This Skill bundles **no icon assets** in the repository itself. Icons live in
-the user's local cache (`~/.copilot/skills/diagram-renderer/.local-assets/`,
-gitignored) and must be downloaded by the user under the appropriate license
-terms via `scripts/fetch-icons.sh`.
+the user's local icon mirror — a per-user data directory outside the skill
+(`node bin/setup.js --where icons`) — and must be downloaded by the user under
+the appropriate license terms via `scripts/fetch-icons.sh`.
 
 This file summarizes the licensing posture per icon set so users can confirm
 their use case is permitted before downloading.
@@ -21,7 +21,7 @@ their use case is permitted before downloading.
 > "Manual download" = the user must visit the official Microsoft page, accept
 > the terms displayed there, and download a ZIP. The `fetch-icons.sh` script
 > prints the URL + terms summary and waits for the user to drop the ZIP into
-> `.local-assets/_inbox/` before extracting.
+> `_inbox/` folder of the mirror before extracting.
 
 ## Sources & terms (verify yourself)
 
@@ -38,7 +38,7 @@ their use case is permitted before downloading.
   - "You may not modify the icons. You may not use Microsoft icons in advertising, promotional materials, sales collateral, or other commercial works."
   - Distribution restrictions apply — these icons **cannot be redistributed** as part of a public skill repository.
 - **This skill's posture**: never commit Azure icons to the repo. Keep them in
-  the user's local `.local-assets/azure/`. The committable artifact is
+  the user's local icon mirror (`<mirror>/azure/`). The committable artifact is
   `resolver-rules.json` only.
 
 ### Microsoft 365 / Office 365 icons

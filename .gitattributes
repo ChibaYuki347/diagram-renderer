@@ -1,0 +1,4 @@
+# Shell scripts keep LF even in Windows checkouts (core.autocrlf=true): WSL
+# bash, which a plain `bash` starts on Windows, rejects CRLF
+# ("set: pipefail: invalid option name").
+*.sh text eol=lf

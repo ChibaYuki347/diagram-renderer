@@ -22,7 +22,8 @@
 
 const fs = require('fs');
 const path = require('path');
-const { XMLParser, XMLBuilder } = require('fast-xml-parser');
+const { requireDependency } = require('./paths');
+const { XMLParser, XMLBuilder } = requireDependency('fast-xml-parser');
 
 const XML_OPTS = {
   ignoreAttributes: false,

@@ -54,7 +54,7 @@ Options:
   --id ID            Exact lookup by catalog id instead of a search
   --sets, --stats    List available sets and icon counts, then exit
   --json             Machine-readable output
-  --asset-root DIR   Icon mirror root (default: <skill>/.local-assets)
+  --asset-root DIR   Icon mirror root (default: \`setup.js --where icons\`)
   --rules FILE       Resolver rules JSON (default: <skill>/assets/icons/resolver-rules.json)
   -h, --help         Show this help
 
