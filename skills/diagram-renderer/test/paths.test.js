@@ -144,15 +144,55 @@ test('migrateLegacyIcons moves the old mirror out of the skill directory', () =>
   assert.ok(fs.existsSync(path.join(s.data, 'icons', 'github', 'octicons', 'repo-24.svg')));
 });
 
-test('migrateLegacyIcons never overwrites an existing mirror', () => {
+test('migrateLegacyIcons never overwrites: identical files dropped, new ones added, differing ones kept', () => {
   const s = sandbox();
-  fs.mkdirSync(path.join(s.skillRoot, '.local-assets', 'azure'), { recursive: true });
-  fs.mkdirSync(path.join(s.data, 'icons', 'github'), { recursive: true });
+  const legacy = path.join(s.skillRoot, '.local-assets');
+  const target = path.join(s.data, 'icons');
+  const put = (root, rel, body) => {
+    fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+    fs.writeFileSync(path.join(root, rel), body);
+  };
+  put(target, 'github/octicons/repo-24.svg', '<svg id="same"/>');
+  put(target, 'azure/compute/Function_Apps.svg', '<svg id="mine"/>');
+  put(legacy, 'github/octicons/repo-24.svg', '<svg id="same"/>');
+  put(legacy, 'azure/compute/Function_Apps.svg', '<svg id="theirs"/>');
+  put(legacy, 'azure/databases/Azure_Cosmos_DB.svg', '<svg id="new"/>');
+  put(legacy, 'entra/color/ID.svg', '<svg id="new-dir"/>');
+
   const r = paths.migrateLegacyIcons(s.opts);
+
+  assert.strictEqual(r.reason, 'conflicts');
   assert.strictEqual(r.moved, false);
-  assert.strictEqual(r.reason, 'target-exists');
-  assert.ok(fs.existsSync(path.join(s.skillRoot, '.local-assets', 'azure')), 'legacy mirror must be left alone');
-  assert.ok(!fs.existsSync(path.join(s.data, 'icons', 'azure')), 'nothing may be merged in');
+  assert.strictEqual(r.duplicates, 1);
+  assert.strictEqual(r.merged, 2, 'one new file, one new directory');
+  assert.deepStrictEqual(r.conflicts, [path.join(legacy, 'azure', 'compute', 'Function_Apps.svg')]);
+  const read = (p) => fs.readFileSync(p, 'utf8');
+  assert.strictEqual(read(path.join(target, 'azure/compute/Function_Apps.svg')), '<svg id="mine"/>', 'never overwritten');
+  assert.strictEqual(read(path.join(legacy, 'azure/compute/Function_Apps.svg')), '<svg id="theirs"/>', 'differing file kept');
+  assert.strictEqual(read(path.join(target, 'azure/databases/Azure_Cosmos_DB.svg')), '<svg id="new"/>');
+  assert.strictEqual(read(path.join(target, 'entra/color/ID.svg')), '<svg id="new-dir"/>');
+  assert.ok(!fs.existsSync(path.join(legacy, 'github')), 'a directory of duplicates is removed');
+  assert.ok(!fs.existsSync(path.join(legacy, 'entra')));
+});
+
+test('migrateLegacyIcons removes a legacy mirror made only of duplicates', () => {
+  const s = sandbox();
+  for (const root of [path.join(s.skillRoot, '.local-assets'), path.join(s.data, 'icons')]) {
+    fs.mkdirSync(path.join(root, 'github', 'octicons'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'github', 'octicons', 'repo-24.svg'), '<svg/>');
+  }
+  const r = paths.migrateLegacyIcons(s.opts);
+  assert.deepStrictEqual([r.reason, r.moved, r.duplicates], ['reconciled', true, 1]);
+  assert.ok(!fs.existsSync(path.join(s.skillRoot, '.local-assets')));
+});
+
+test('migrateLegacyIcons refuses a data directory inside the legacy mirror', () => {
+  const s = sandbox();
+  const legacy = path.join(s.skillRoot, '.local-assets');
+  fs.mkdirSync(legacy, { recursive: true });
+  const r = paths.migrateLegacyIcons({ env: { DIAGRAM_RENDERER_DATA: legacy }, skillRoot: s.skillRoot });
+  assert.strictEqual(r.reason, 'overlapping');
+  assert.ok(fs.existsSync(legacy));
 });
 
 test('migrateLegacyIcons is a no-op without a legacy mirror', () => {
@@ -298,6 +338,15 @@ test('--where rejects an unknown name', () => {
   assert.strictEqual(r.code, 2);
 });
 
+test('--where without a usable name exits 2 instead of installing', () => {
+  const s = sandbox();
+  for (const args of [['--where'], ['--where', ''], ['--where', 'constructor']]) {
+    const r = setup(args, { DIAGRAM_RENDERER_DATA: s.data });
+    assert.strictEqual(r.code, 2, `${JSON.stringify(args)}: ${r.stdout}${r.stderr}`);
+    assert.ok(!fs.existsSync(path.join(s.data, 'runtime')), `${JSON.stringify(args)} must not install`);
+  }
+});
+
 test('--check fails on a runtime installed for other dependency versions', () => {
   const s = sandbox();
   fakeRuntime(s, { '@mermaid-js/mermaid-cli': '^1.0.0' });
@@ -431,6 +480,29 @@ test('cleanup reaches the plugin VS Code copies from, and leaves an older versio
   assert.ok(!fs.existsSync(path.join(copy, 'node_modules')), 'the running copy is cleaned too');
   assert.ok(fs.existsSync(path.join(old, 'node_modules')), 'an older version keeps its node_modules');
   assert.ok(fs.existsSync(path.join(old, '.local-assets')), 'an older version keeps its icons');
+});
+
+test('cleanup leaves no mirror behind in either the source or its VS Code copy', () => {
+  const s = sandbox();
+  const home = path.join(s.root, 'home');
+  const source = path.join(home, '.copilot', 'installed-plugins', 'mp', 'diagram-renderer');
+  const sourceSkill = fakeSkill(path.join(source, 'skills', 'diagram-renderer'));
+  const copy = fakeVsCodeCopy(s.root, source);
+  // VS Code copied the source's mirror byte for byte.
+  for (const skill of [sourceSkill, copy]) {
+    const dir = path.join(skill, '.local-assets', 'github', 'octicons');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'repo-24.svg'), '<svg id="repo"/>');
+  }
+
+  withData(s.data, () => silenced(() => cleanInstalls({ skillRoot: copy, home })));
+
+  assert.ok(!fs.existsSync(path.join(sourceSkill, '.local-assets')), 'source mirror moved');
+  assert.ok(!fs.existsSync(path.join(copy, '.local-assets')), 'copy mirror removed as duplicates');
+  assert.strictEqual(
+    fs.readFileSync(path.join(s.data, 'icons', 'github', 'octicons', 'repo-24.svg'), 'utf8'),
+    '<svg id="repo"/>'
+  );
 });
 
 test('cleanup leaves a development clone alone unless it is pruned', () => {

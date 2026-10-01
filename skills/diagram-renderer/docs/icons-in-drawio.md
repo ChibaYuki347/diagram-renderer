@@ -202,7 +202,10 @@ every turn. Print it with `node <skill>/bin/setup.js --where icons`:
 `DIAGRAM_RENDERER_DATA=<dir>` moves it to `<dir>/icons`. A mirror an older
 version left in `<skill>/.local-assets/` is still read, and is moved to the new
 location the next time you run `fetch-icons.sh` or `bin/setup.js` (from every
-installed copy of the skill they find, not only the one they run from).
+installed copy of the skill they find, not only the one they run from). If the
+new location already has a mirror, the old one is folded in without
+overwriting: identical files are dropped, missing ones added, and files that
+differ stay in `.local-assets/` and are listed.
 
 ```
 <mirror>/

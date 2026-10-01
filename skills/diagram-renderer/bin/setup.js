@@ -46,7 +46,13 @@ function parseArgs(argv) {
     if (a === '--check') args.check = true;
     else if (a === '--migrate-icons') args.migrateIcons = true;
     else if (a === '--prune') args.prune = true;
-    else if (a === '--where') args.where = argv[++i];
+    else if (a === '--where') {
+      args.where = argv[++i];
+      if (args.where === undefined) {
+        console.error('--where takes data, runtime or icons');
+        process.exit(2);
+      }
+    }
     else if (a === '-h' || a === '--help') args.help = true;
     else {
       console.error(`Unknown option: ${a}`);
@@ -66,9 +72,11 @@ VS Code copy the plugin directory on every turn.
   (no option)       Install into ${paths.runtimeDir()}
                     (skipped when already current). Then, in every installed
                     copy of this skill (including the one VS Code copies from),
-                    move a legacy .local-assets/ icon mirror to
+                    move a legacy .local-assets/ icon mirror into
                     ${paths.iconsDir()}
-                    and remove node_modules/ and package-lock.json.
+                    (never overwriting: identical files are dropped, differing
+                    ones stay and are listed) and remove node_modules/ and
+                    package-lock.json.
   --check           Report where everything resolves from; install nothing.
                     Exit 1 if a dependency is missing, the runtime is out of
                     date, or an installed plugin still has node_modules/.
@@ -247,13 +255,23 @@ function installRuntime() {
 
 function migrateIcons(install) {
   const r = paths.migrateLegacyIcons({ skillRoot: install.dir });
-  if (r.moved) console.log(`Moved the icon mirror ${r.legacy} -> ${r.target}`);
-  else if (r.reason === 'target-exists' && !install.hostCopy) {
-    // A host copy mirrors its source, which was handled first; nothing to say.
-    console.warn(
-      `Warning: an old icon mirror is still at ${r.legacy}, but ${r.target} already exists and is used.\n` +
-      `  Copy anything you still need from the old one into the new one, then delete ${r.legacy}.`
+  if (r.reason === 'moved') {
+    console.log(`Moved the icon mirror ${r.legacy} -> ${r.target}`);
+  } else if (r.reason === 'reconciled') {
+    console.log(
+      `Folded the icon mirror ${r.legacy} into ${r.target} ` +
+      `(${r.merged} added, ${r.duplicates} identical duplicates removed)`
     );
+  } else if (r.reason === 'conflicts') {
+    const shown = r.conflicts.slice(0, 5).map((c) => `    ${c}`).join('\n');
+    const more = r.conflicts.length > 5 ? `\n    ... and ${r.conflicts.length - 5} more` : '';
+    console.warn(
+      `Warning: ${r.legacy} still holds ${r.conflicts.length} file(s) that differ from the same path in ${r.target}\n` +
+      `  (${r.merged} added, ${r.duplicates} identical duplicates removed). Nothing was overwritten:\n${shown}${more}\n` +
+      `  Keep whichever version you want in ${r.target}, then delete ${r.legacy}.`
+    );
+  } else if (r.reason === 'overlapping') {
+    console.warn(`Warning: ${r.legacy} and ${r.target} overlap; ${paths.DATA_ENV} must point outside the skill.`);
   }
 }
 
@@ -360,9 +378,9 @@ function main(argv) {
     printHelp();
     return 0;
   }
-  if (args.where) {
+  if (args.where !== null) {
     const dirs = { data: paths.dataDir, runtime: paths.runtimeDir, icons: paths.iconsDir };
-    if (!dirs[args.where]) {
+    if (!Object.prototype.hasOwnProperty.call(dirs, args.where)) {
       console.error(`--where takes data, runtime or icons; got '${args.where}'`);
       return 2;
     }

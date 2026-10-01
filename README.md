@@ -173,7 +173,10 @@ READ_AND_AGREE=1 scripts/fetch-icons.sh power-platform  # manual ZIP
 > dependencies in the data directory, then, in every installed copy of this
 > skill it finds (including the plugin VS Code copies from, and each install
 > under `~/.copilot/installed-plugins`), moves `.local-assets/` out and deletes
-> `node_modules/`. An install still on an older version is left untouched,
+> `node_modules/`. When the data directory already has a mirror, the old one is
+> folded in without overwriting anything: identical files are dropped, missing
+> ones added, and any file that differs stays put and is listed for you to
+> settle. An install still on an older version is left untouched,
 > because its code only looks inside itself. Until setup runs, the old
 > locations keep working.
 
@@ -343,10 +346,11 @@ Tests cover the draw.io SVG inline pass (21 cases: DOM parsing, `href` vs
 the icon index (29 cases: variant grouping, scoring, URL round-tripping, CLI
 exit codes), input-kind detection (15 cases: XML prologue handling, editable
 SVG vs raw draw.io XML vs unrenderable input) and where things are installed
-(34 cases: data-directory defaults per OS, legacy fallbacks, icon-mirror
-migration, dependency resolution order, stale and half-finished runtimes,
-mapping a VS Code copy back to its source plugin, cleanup of installed copies,
-the default draw.io resolver) — 99 in total.
+(38 cases: data-directory defaults per OS, legacy fallbacks, icon-mirror
+migration and non-overwriting reconciliation, dependency resolution order,
+stale and half-finished runtimes, mapping a VS Code copy back to its source
+plugin, cleanup of installed copies, `--where` argument handling, the default
+draw.io resolver) — 103 in total.
 
 ### End-to-end smoke test
 

@@ -169,23 +169,88 @@ function runtimeStatus(opts = {}) {
   };
 }
 
+function moveEntry(src, dest, isDir) {
+  try {
+    fs.renameSync(src, dest);
+  } catch (e) {
+    if (e.code !== 'EXDEV') throw e;
+    if (isDir) fs.cpSync(src, dest, { recursive: true, errorOnExist: true, force: false });
+    else fs.copyFileSync(src, dest, fs.constants.COPYFILE_EXCL);
+    fs.rmSync(src, { recursive: true, force: true });
+  }
+}
+
+function sameFileContent(a, b) {
+  if (fs.statSync(a).size !== fs.statSync(b).size) return false;
+  return fs.readFileSync(a).equals(fs.readFileSync(b));
+}
+
+// Fold `src` into `dest` without ever overwriting: what `dest` lacks moves in,
+// a byte-identical file is dropped from `src`, and anything that differs (or is
+// not a plain file or directory) stays in `src` and is listed in `conflicts`.
+// Directories left empty in `src` are removed.
+function reconcileInto(src, dest, stats) {
+  for (const ent of fs.readdirSync(src, { withFileTypes: true })) {
+    const s = path.join(src, ent.name);
+    const d = path.join(dest, ent.name);
+    const there = fs.lstatSync(d, { throwIfNoEntry: false });
+    if (ent.isDirectory()) {
+      if (!there) {
+        moveEntry(s, d, true);
+        stats.merged++;
+      } else if (there.isDirectory()) {
+        reconcileInto(s, d, stats);
+      } else {
+        stats.conflicts.push(s);
+      }
+    } else if (ent.isFile()) {
+      if (!there) {
+        moveEntry(s, d, false);
+        stats.merged++;
+      } else if (there.isFile() && sameFileContent(s, d)) {
+        fs.rmSync(s);
+        stats.duplicates++;
+      } else {
+        stats.conflicts.push(s);
+      }
+    } else {
+      stats.conflicts.push(s);
+    }
+  }
+  if (fs.readdirSync(src).length === 0) fs.rmdirSync(src);
+}
+
+function nested(a, b) {
+  const rel = path.relative(path.resolve(a), path.resolve(b));
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+}
+
 // Move an icon mirror that an older version wrote under the skill directory to
-// the data directory. Never overwrites: when both exist the legacy one is left
-// alone and reported, because merging two users' packs is not ours to decide.
+// the data directory.
+//
+// When the data directory already has a mirror — typically because another
+// installed copy (e.g. the plugin a VS Code copy is synced from) was migrated
+// first — the two are reconciled without overwriting anything: files the
+// mirror lacks move in, byte-identical duplicates are deleted, and files that
+// differ stay where they are and are reported. A copy made of nothing but
+// duplicates therefore disappears from the plugin entirely.
 function migrateLegacyIcons(opts = {}) {
   const legacy = legacyIconsDir(opts);
   const target = iconsDir(opts);
-  if (!fs.existsSync(legacy)) return { moved: false, reason: 'no-legacy', legacy, target };
-  if (fs.existsSync(target)) return { moved: false, reason: 'target-exists', legacy, target };
-  fs.mkdirSync(path.dirname(target), { recursive: true });
-  try {
-    fs.renameSync(legacy, target);
-  } catch (e) {
-    if (e.code !== 'EXDEV') throw e;
-    fs.cpSync(legacy, target, { recursive: true, errorOnExist: true, force: false });
-    fs.rmSync(legacy, { recursive: true, force: true });
+  const base = { legacy, target, merged: 0, duplicates: 0, conflicts: [] };
+  if (!fs.existsSync(legacy)) return Object.assign(base, { moved: false, reason: 'no-legacy' });
+  if (nested(legacy, target) || nested(target, legacy)) {
+    return Object.assign(base, { moved: false, reason: 'overlapping' });
   }
-  return { moved: true, reason: 'moved', legacy, target };
+  if (!fs.existsSync(target)) {
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    moveEntry(legacy, target, true);
+    return Object.assign(base, { moved: true, reason: 'moved' });
+  }
+  const stats = { merged: 0, duplicates: 0, conflicts: [] };
+  reconcileInto(legacy, target, stats);
+  const done = !fs.existsSync(legacy);
+  return Object.assign(base, stats, { moved: done, reason: done ? 'reconciled' : 'conflicts' });
 }
 
 module.exports = {
