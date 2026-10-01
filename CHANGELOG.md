@@ -16,6 +16,12 @@ removal or a change marked `breaking: true` stops the automatic release and
 sends it to the typed-major path in `RELEASING.md`. Sections up to 0.6.0 were
 written by hand under `## [Unreleased]`, and read as they were written.
 
+## [0.6.2] — 2026-10-01
+
+### Fixed
+
+- VS Code no longer hangs each turn on `EMFILE`: `node bin/setup.js` installs mermaid-cli and puppeteer into a per-user data directory instead of the plugin, `fetch-icons.sh` puts the icon mirror there too, and setup moves out or deletes what older versions left inside the plugin. (#11)
+
 ## [0.6.1] — 2026-09-25
 
 ### Changed
