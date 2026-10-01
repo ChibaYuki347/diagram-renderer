@@ -47,7 +47,7 @@ Options:
   --background CSS        Background color (default: transparent)
 
 Icon inlining (Phase 4):
-  --asset-root DIR        Root of local icon mirror (default: <skill>/.local-assets)
+  --asset-root DIR        Root of local icon mirror (default: \`setup.js --where icons\`)
   --rules FILE            JSON file with resolver rules (default: <skill>/assets/icons/resolver-rules.json if present)
   --aliases FILE          JSON file with URL→localPath alias map (optional)
   --no-inline-images      Skip the inline-external-images preflight (NOT recommended)
@@ -97,7 +97,7 @@ async function main() {
 
   // Build resolver if asset-root is provided (or default exists)
   const SKILL_ROOT = path.resolve(__dirname, '..');
-  const defaultAssetRoot = path.join(SKILL_ROOT, '.local-assets');
+  const defaultAssetRoot = require('../lib/paths').defaultAssetRoot();
   const defaultRules = path.join(SKILL_ROOT, 'assets', 'icons', 'resolver-rules.json');
   const defaultAliases = path.join(SKILL_ROOT, 'assets', 'icons', 'aliases.json');
 

@@ -15,9 +15,19 @@ to set.
 
 ```bash
 cd <skill>                 # the directory containing this SKILL.md
-npm install                # mermaid-cli + puppeteer
+node bin/setup.js          # mermaid-cli + puppeteer, installed OUTSIDE this directory
 npm test                   # should print "N passed, 0 failed"
 ```
+
+> ⚠️ **Never run `npm install` inside this skill directory.** Plugin hosts such
+> as VS Code copy the whole plugin directory on every turn; a `node_modules/`
+> here is ~33,000 files, which exhausts file handles (`EMFILE`) and hangs each
+> turn for minutes. `bin/setup.js` installs into a per-user data directory
+> instead (`%LOCALAPPDATA%\diagram-renderer`, `~/Library/Application
+> Support/diagram-renderer` or `~/.local/share/diagram-renderer`; override with
+> `DIAGRAM_RENDERER_DATA`), and removes a `node_modules/` an older version left
+> in the plugin — including the plugin VS Code copies this directory from.
+> `node bin/setup.js --check` reports where everything resolves from.
 
 Rendering works immediately for Mermaid and for draw.io SVGs that already embed
 their images. To resolve **product icons** offline, populate the local mirror
@@ -28,8 +38,9 @@ bash scripts/fetch-icons.sh github          # Octicons, MIT, fully automatic
 bash scripts/fetch-icons.sh azure entra power-platform   # Microsoft packs, manual ZIP drop
 ```
 
-The mirror lands in `<skill>/.local-assets/` (gitignored, never redistributed)
-and is auto-discovered at render time. Then find the exact icon to reference:
+The mirror lands in the same data directory (`node bin/setup.js --where
+icons`; never redistributed) and is auto-discovered at render time. Then find
+the exact icon to reference:
 
 ```bash
 node bin/icon-search.js cosmos db
@@ -57,12 +68,12 @@ guide.
 draw.io exports can reference Azure / M365 / Power Platform / Entra ID / GitHub icons
 as external URLs (`<image xlink:href="https://app.diagrams.net/img/lib/azure2/...">`)
 when "Embed Images" is OFF. This skill detects those URLs at render time and
-substitutes data: URIs sourced from a local mirror (`.local-assets/`), so the
+substitutes data: URIs sourced from the local icon mirror, so the
 PNG comes out identical whether you exported with embedding ON or OFF — and **no
 network is touched at render time** (enforced via Puppeteer request interception).
 
 Setup:
-- `scripts/fetch-icons.sh` — populate the local mirror (GitHub Octicons auto via npm MIT; MS icons via interactive license-confirm + manual ZIP drop)
+- `scripts/fetch-icons.sh` — populate the local mirror in the per-user data directory (GitHub Octicons auto via npm MIT; MS icons via interactive license-confirm + manual ZIP drop)
 - `bin/icon-search.js` — search the populated mirror; prints the canonical URL to paste into your SVG, so you never have to guess a filename
 - `assets/icons/resolver-rules.json` — committed rule definitions (URL pattern → local subtree, plus the `canonicalUrl` used to map back)
 - `assets/icons/aliases.json` — committed exact-URL overrides for edge cases
@@ -81,7 +92,7 @@ node bin/icon-search.js cosmos db
 #   name : Azure Cosmos DB
 #   set  : azure   group: databases
 #   url  : https://app.diagrams.net/img/lib/azure2/databases/Azure_Cosmos_DB.svg
-#   file : <skill>/.local-assets/azure/databases/Azure_Cosmos_DB.svg
+#   file : <data>/icons/azure/databases/Azure_Cosmos_DB.svg
 
 node bin/icon-search.js "entra id" --set entra --json   # machine-readable
 node bin/icon-search.js --sets                          # what is installed
@@ -167,7 +178,7 @@ const { path: pngPath, width, height } = await renderDrawio({
 
 // Search the local icon mirror (Phase 4)
 const { buildIconIndex, searchIcons } = require('<skill>/lib/icon-index');
-const index = buildIconIndex();                       // defaults to <skill>/.local-assets
+const index = buildIconIndex();                       // defaults to the local icon mirror (<data>/icons)
 const [best] = searchIcons(index, 'cosmos db');
 // best.url  → https://app.diagrams.net/img/lib/azure2/databases/Azure_Cosmos_DB.svg
 // best.file → absolute path to the SVG on disk
@@ -196,7 +207,7 @@ in this repository depends on it.
 ## Dependencies
 
 - Node 18+
-- `@mermaid-js/mermaid-cli` (Puppeteer-based; bundled Chromium download is ~150 MB unless `PUPPETEER_EXECUTABLE_PATH` reuses an existing Chromium)
+- `@mermaid-js/mermaid-cli` (Puppeteer-based; bundled Chromium download is ~150 MB unless `PUPPETEER_EXECUTABLE_PATH` reuses an existing Chromium), installed by `node bin/setup.js` into the per-user data directory — not into this skill directory
 - Optional CJK fonts at `~/.fonts/` for Japanese rendering (Noto Sans CJK JP)
 
 ## Known constraints

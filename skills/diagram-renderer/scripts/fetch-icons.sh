@@ -1,17 +1,22 @@
 #!/usr/bin/env bash
 # fetch-icons.sh — license-safe icon acquisition for diagram-renderer
 #
-# Populates <skill>/.local-assets/ (i.e. the directory next to this script's
-# parent — wherever the skill happens to be installed) with icon SVGs that the
-# renderer can use to inline external <image href="..."> references in drawio
-# SVG exports (when "Embed Images" is OFF). The renderer auto-discovers this
-# same path, so no configuration is needed.
+# Populates the local icon mirror with icon SVGs that the renderer can use to
+# inline external <image href="..."> references in drawio SVG exports (when
+# "Embed Images" is OFF). The renderer auto-discovers the same directory, so no
+# configuration is needed.
+#
+# The mirror lives in the per-user data directory (`node bin/setup.js --where
+# icons`), NOT under the skill directory: plugin hosts such as VS Code copy the
+# skill directory on every turn. A mirror an older version left under the skill
+# directory (.local-assets/) is moved there first.
 #
 # Behavior:
-#   * GitHub Octicons: auto-downloaded via `npm install --no-save @primer/octicons` (MIT).
+#   * GitHub Octicons: auto-downloaded via `npm install --no-save @primer/octicons` (MIT)
+#     into a temporary directory.
 #   * Microsoft Azure / M365 / Power Platform / Entra: print the official
 #     download URL + license summary, wait for the user to drop the ZIP into
-#     `.local-assets/_inbox/`, then extract.
+#     `<mirror>/_inbox/`, then extract.
 #
 # Usage:
 #   ./scripts/fetch-icons.sh              # interactive (asks per set)
@@ -22,13 +27,57 @@
 #   READ_AND_AGREE=1   # bypass interactive license prompt (you've read the
 #                      # terms in assets/icons/LICENSE.md and agree to follow
 #                      # them for your use case).
+#   DIAGRAM_RENDERER_DATA=<dir>   # override the data directory (mirror = <dir>/icons)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-ASSETS_DIR="$SKILL_DIR/.local-assets"
-INBOX_DIR="$ASSETS_DIR/_inbox"
 LICENSE_DOC="$SKILL_DIR/assets/icons/LICENSE.md"
+
+# WSL bash (what a plain `bash` starts on Windows when Git Bash is not on PATH)
+# with the skill on a Windows drive: the renderer runs as Windows node and reads
+# %LOCALAPPDATA%, so the mirror has to go there, not into WSL's ~/.local/share.
+IS_WSL_WIN=0
+if [[ -n "${WSL_DISTRO_NAME:-}" && "$SKILL_DIR" == /mnt/[a-zA-Z]/* ]]; then
+  IS_WSL_WIN=1
+  if [[ -z "${DIAGRAM_RENDERER_DATA:-}" ]]; then
+    win_local="$(cmd.exe /d /c 'echo %LOCALAPPDATA%' 2>/dev/null | tr -d '\r' || true)"
+    if [[ -z "$win_local" || "$win_local" == *%* ]]; then
+      echo "fetch-icons.sh: running under WSL, but %LOCALAPPDATA% could not be read from Windows." >&2
+      echo "  Run it from Git Bash instead, or set DIAGRAM_RENDERER_DATA." >&2
+      exit 1
+    fi
+    DIAGRAM_RENDERER_DATA="$(wslpath -u "$win_local")/diagram-renderer"
+    export DIAGRAM_RENDERER_DATA
+  fi
+fi
+
+# bin/setup.js owns the location rules (lib/paths.js); ask it rather than
+# duplicating them here. Under WSL without a Linux node, Windows node.exe will do.
+setup_js() {
+  if command -v node >/dev/null 2>&1; then
+    node "$SKILL_DIR/bin/setup.js" "$@"
+  elif (( IS_WSL_WIN )) && command -v node.exe >/dev/null 2>&1; then
+    WSLENV="${WSLENV:+$WSLENV:}DIAGRAM_RENDERER_DATA/p" \
+      node.exe "$(wslpath -w "$SKILL_DIR/bin/setup.js")" "$@"
+  else
+    echo "fetch-icons.sh needs node (18+) on PATH." >&2
+    return 1
+  fi
+}
+
+setup_js --migrate-icons >&2
+ASSETS_DIR="$(setup_js --where icons | tr -d '\r')"
+ASSETS_DIR_NATIVE="$ASSETS_DIR"
+# Windows node prints C:\...; Git Bash / WSL tools want /c/... or /mnt/c/...
+if [[ "$ASSETS_DIR" =~ ^[A-Za-z]:[\\/] ]]; then
+  if command -v cygpath >/dev/null 2>&1; then
+    ASSETS_DIR="$(cygpath -u "$ASSETS_DIR")"
+  elif command -v wslpath >/dev/null 2>&1; then
+    ASSETS_DIR="$(wslpath -u "$ASSETS_DIR")"
+  fi
+fi
+INBOX_DIR="$ASSETS_DIR/_inbox"
 
 # ──────────────────────────────────────────────────────────────────────────
 # helpers
@@ -402,13 +451,13 @@ main() {
   done
 
   log ""
-  ok "Done. Local cache: $ASSETS_DIR"
+  ok "Done. Local icon mirror: $ASSETS_DIR_NATIVE"
   log ""
   log "Next steps:"
-  log "  1. (optional) Inspect $ASSETS_DIR and verify filenames match the URLs in your drawio SVGs."
+  log "  1. (optional) Inspect $ASSETS_DIR_NATIVE and verify filenames match the URLs in your drawio SVGs."
   log "  2. (optional) Add manual overrides to assets/icons/aliases.json for any mismatches."
-  log "  3. Render: node bin/render-drawio.js <your.drawio.svg> --asset-root '$ASSETS_DIR'"
-  log "     (asset-root is auto-discovered if you don't pass it.)"
+  log "  3. Render: node bin/render-drawio.js <your.drawio.svg> --out <out.png>"
+  log "     (the mirror is found automatically; --asset-root overrides it.)"
 }
 
 main "$@"

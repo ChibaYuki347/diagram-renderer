@@ -14,7 +14,7 @@
     "fast-xml-parser": "^5.8.0"
   },
   "scripts": {
-    "test": "node test/inline-external-images.test.js && node test/icon-index.test.js && node test/detect-drawio-kind.test.js",
+    "test": "node test/inline-external-images.test.js && node test/icon-index.test.js && node test/detect-drawio-kind.test.js && node test/paths.test.js",
     "test:e2e": "node test/e2e-render.test.js",
     "fetch-icons": "bash scripts/fetch-icons.sh"
   },

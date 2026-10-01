@@ -39,6 +39,12 @@ fi
 [ -n "$RENDERER" ] || { echo 'diagram-renderer plugin not found'; exit 1; }
 SKILL="$RENDERER/skills/diagram-renderer"
 echo "renderer at $SKILL"
+
+# Dependencies (mermaid-cli, puppeteer) live in a per-user data directory, not
+# in the plugin. Install them on first use with setup.js — NEVER `npm install`
+# inside "$SKILL": plugin hosts such as VS Code copy the plugin directory on
+# every turn, and a node_modules/ there hangs each turn.
+node "$SKILL/bin/setup.js" --check >/dev/null 2>&1 || node "$SKILL/bin/setup.js"
 ```
 
 CLI entry points (stable; treated as a public contract):
@@ -104,7 +110,7 @@ a different icon from the search results, or tell the user which
 URL.
 
 The URL families the resolver understands (all populated by
-`scripts/fetch-icons.sh`):
+`scripts/fetch-icons.sh` into the icon mirror, `node "$SKILL/bin/setup.js" --where icons`):
 
 | Pattern | What it covers |
 |---|---|

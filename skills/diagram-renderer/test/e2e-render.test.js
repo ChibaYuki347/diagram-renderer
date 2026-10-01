@@ -18,11 +18,11 @@
 //   npm run test:e2e
 //
 // Prerequisites:
-//   npm install
+//   node bin/setup.js                                  # dependencies, outside the skill dir
 //   READ_AND_AGREE=1 scripts/fetch-icons.sh github     # Octicons, MIT, auto
 //
 // Env:
-//   E2E_ASSET_ROOT   override the icon mirror location (default <skill>/.local-assets)
+//   E2E_ASSET_ROOT   override the icon mirror location (default `setup.js --where icons`)
 //   E2E_OUT_DIR      keep rendered PNGs here instead of a scratch dir that is
 //                    deleted on exit. CI sets this so the samples can be
 //                    uploaded as build artifacts and actually looked at.
@@ -39,7 +39,7 @@ const { spawnSync } = require('child_process');
 
 const SKILL_DIR = path.resolve(__dirname, '..');
 const BIN = path.join(SKILL_DIR, 'bin');
-const ASSET_ROOT = process.env.E2E_ASSET_ROOT || path.join(SKILL_DIR, '.local-assets');
+const ASSET_ROOT = process.env.E2E_ASSET_ROOT || require('../lib/paths').defaultAssetRoot();
 
 const SAMPLE_MMD = path.join(__dirname, 'sample-flow.mmd');
 const SAMPLE_DRAWIO = path.join(__dirname, 'sample-architecture.drawio.svg');

@@ -8,7 +8,7 @@
 //   buildIconIndex({ assetRoot, rules? })  → { assetRoot, entries, sets, warnings }
 //   searchIcons(index, query, opts?)       → [{ ...entry, score }]
 //   getIcon(index, id)                     → entry | null
-//   defaultAssetRoot()                     → absolute path to <skill>/.local-assets
+//   defaultAssetRoot()                     → absolute path to the local icon mirror (lib/paths.js)
 //
 // Why this exists
 // ---------------
@@ -29,20 +29,21 @@
 //   the pack's original filename for provenance. Those are the same logical
 //   icon, so we fold them into one entry with `variants[]` rather than
 //   returning near-duplicate search hits.
-// - A missing/absent asset root is NOT an error. `.local-assets/` is
-//   gitignored and absent on a fresh install, so we return an empty index plus
-//   a warning and let the caller decide.
+// - A missing/absent asset root is NOT an error. The mirror lives outside the
+//   skill directory and is absent on a fresh install, so we return an empty
+//   index plus a warning and let the caller decide.
 
 'use strict';
 
 const fs = require('fs');
 const path = require('path');
+const paths = require('./paths');
 
 const SKILL_ROOT = path.resolve(__dirname, '..');
 
-/** Absolute path to the conventional local icon mirror. */
+/** Absolute path to the local icon mirror (see lib/paths.js). */
 function defaultAssetRoot() {
-  return path.join(SKILL_ROOT, '.local-assets');
+  return paths.defaultAssetRoot();
 }
 
 /** Absolute path to the committed resolver rules. */
@@ -171,7 +172,7 @@ function canonicalUrlFor(mappers, relPosix) {
  * Scan the local icon mirror into a searchable catalog.
  *
  * @param {Object}   [opts]
- * @param {string}   [opts.assetRoot]  Mirror root (default: <skill>/.local-assets)
+ * @param {string}   [opts.assetRoot]  Mirror root (default: defaultAssetRoot())
  * @param {Array}    [opts.rules]      Resolver rules (default: loaded from assets/icons/resolver-rules.json)
  * @returns {{assetRoot: string, entries: Array, sets: Array, warnings: Array<string>}}
  */

@@ -18,8 +18,9 @@
 //     inlineImages      — bool (default: true). If true, pre-process the SVG with
 //                         inlineExternalImages() to convert external <image> URLs
 //                         to data: URIs from local mirror. Required for offline rendering.
-//     resolver          — function (url) → {ok, localPath?, reason?}. Required when
-//                         inlineImages=true and SVG contains external refs.
+//     resolver          — function (url) → {ok, localPath?, reason?}. Defaults to
+//                         the committed resolver rules + aliases over the default
+//                         icon mirror (see lib/paths.js), when that mirror exists.
 //     strictOffline     — bool (default: true). Intercept Puppeteer requests and
 //                         abort any http(s) navigation, fail-fast on any external
 //                         fetch attempt. Local file:// and data: are allowed.
@@ -44,22 +45,40 @@ const os = require('os');
 const crypto = require('crypto');
 
 const { findChromium } = require('./render');
-const { inlineExternalImages } = require('./inline-external-images');
+const { inlineExternalImages, createResolver } = require('./inline-external-images');
+const { defaultAssetRoot, requireDependency } = require('./paths');
 
 const SKILL_ROOT = path.resolve(__dirname, '..');
-const PUPPETEER_PATHS = [SKILL_ROOT];
 
 function loadPuppeteer() {
+  // puppeteer comes in transitively with @mermaid-js/mermaid-cli.
+  return requireDependency('puppeteer');
+}
+
+function readJsonOr(file, fallback) {
   try {
-    const resolved = require.resolve('puppeteer', { paths: PUPPETEER_PATHS });
-    return require(resolved);
-  } catch (e) {
-    throw new Error(
-      'puppeteer is not installed in diagram-renderer. ' +
-      'It is normally pulled in transitively by @mermaid-js/mermaid-cli — run ' +
-      '`npm install` in ' + SKILL_ROOT + ' to restore.'
-    );
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (_) {
+    return fallback;
   }
+}
+
+// The resolver used when the caller supplies none: the committed rules and
+// aliases over the default icon mirror — the same one bin/render-drawio.js
+// builds. Callers that located the mirror themselves under the skill directory
+// (where older versions kept it) pass no resolver once it has moved, and still
+// resolve. Returns null when there is no mirror.
+function defaultResolver() {
+  const assetRoot = defaultAssetRoot();
+  if (!fs.existsSync(assetRoot)) return null;
+  const iconsConfig = path.join(SKILL_ROOT, 'assets', 'icons');
+  const rules = readJsonOr(path.join(iconsConfig, 'resolver-rules.json'), []);
+  const aliases = readJsonOr(path.join(iconsConfig, 'aliases.json'), {});
+  return createResolver({
+    rules: Array.isArray(rules) ? rules : [],
+    aliases: aliases && typeof aliases === 'object' ? aliases : {},
+    assetRoot,
+  });
 }
 
 // Detect whether the source looks like SVG vs raw drawio XML.
@@ -166,26 +185,19 @@ async function renderDrawio(opts = {}) {
   // ---- Phase 4.3: inline external <image> refs to data: URIs --------------
   let inlineReport = null;
   if (inlineImages) {
-    if (!resolver) {
-      // No resolver supplied. If the SVG happens to be already self-contained
-      // (Embed Images was ON at export time), we don't need one — but we still
-      // want to detect external refs and fail-fast in strictOffline mode.
-      // Use a noop resolver that flags everything as unresolved.
-      const noopResolver = () => ({ ok: false, reason: 'no resolver configured (inlineImages=true but resolver=null)' });
-      const r = inlineExternalImages({ svg: content, resolve: noopResolver });
-      if (r.unresolved.length > 0 && strictOffline) {
-        throw formatUnresolvedError(r.unresolved);
-      }
-      inlineReport = r;
-      content = r.svg;
-    } else {
-      const r = inlineExternalImages({ svg: content, resolve: resolver });
-      if (r.unresolved.length > 0 && strictOffline) {
-        throw formatUnresolvedError(r.unresolved);
-      }
-      inlineReport = r;
-      content = r.svg;
+    // Without a resolver, fall back to the default icon mirror. With no mirror
+    // either, every external ref is flagged unresolved and strictOffline still
+    // fails fast; an SVG exported with "Embed Images" ON has none and renders.
+    const resolve = resolver || defaultResolver() || (() => ({
+      ok: false,
+      reason: `no resolver supplied and no icon mirror at ${defaultAssetRoot()} (run scripts/fetch-icons.sh)`,
+    }));
+    const r = inlineExternalImages({ svg: content, resolve });
+    if (r.unresolved.length > 0 && strictOffline) {
+      throw formatUnresolvedError(r.unresolved);
     }
+    inlineReport = r;
+    content = r.svg;
   }
 
   const outAbs = path.resolve(out);
@@ -305,4 +317,4 @@ function cacheKey({ source, file, scale = 2, cssWidth = 1600, background = 'tran
   return h.digest('hex');
 }
 
-module.exports = { renderDrawio, cacheKey, detectDrawioKind };
+module.exports = { renderDrawio, cacheKey, detectDrawioKind, defaultResolver };

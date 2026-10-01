@@ -15,9 +15,10 @@
 //   Returns:
 //     { path, format, width, height }       // width/height = output PNG pixel dimensions
 //
-// Implementation: shells out to node_modules/.bin/mmdc with a generated
-// puppeteer config that reuses Playwright's installed Chromium if available,
-// avoiding a double Chromium download.
+// Implementation: runs mermaid-cli (installed by bin/setup.js into the per-user
+// runtime directory, see lib/paths.js) with a generated puppeteer config that
+// reuses Playwright's installed Chromium if available, avoiding a double
+// Chromium download.
 
 'use strict';
 
@@ -26,6 +27,7 @@ const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
 const { spawnSync } = require('child_process');
+const { dependencyRoots, runtimeDir, SETUP_SCRIPT } = require('./paths');
 
 const SKILL_ROOT = path.resolve(__dirname, '..');
 const THEMES_DIR = path.join(SKILL_ROOT, 'themes');
@@ -50,24 +52,27 @@ function resolveMmdc() {
   return null;
 }
 
-// Locate mermaid-cli's package.json.
+// Locate mermaid-cli's package.json, searching the same places in the same
+// order as every other dependency (lib/paths.js dependencyRoots()).
 //
 // `require.resolve('@mermaid-js/mermaid-cli/package.json')` is tried first but
 // cannot be relied on: packages that declare an `exports` map without a
 // `./package.json` entry make that throw ERR_PACKAGE_PATH_NOT_EXPORTED even
-// though the package is installed and perfectly usable. So we also walk the
-// node_modules chain by hand.
+// though the package is installed and perfectly usable. So each root's
+// node_modules is also checked by hand, walking up from the skill directory.
 function mmdcPackageCandidates() {
   const out = [];
-  try {
-    out.push(require.resolve('@mermaid-js/mermaid-cli/package.json', { paths: [SKILL_ROOT] }));
-  } catch (_) {}
-  let dir = SKILL_ROOT;
-  for (;;) {
-    out.push(path.join(dir, 'node_modules', '@mermaid-js', 'mermaid-cli', 'package.json'));
-    const parent = path.dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
+  for (const root of dependencyRoots()) {
+    try {
+      out.push(require.resolve('@mermaid-js/mermaid-cli/package.json', { paths: [root] }));
+    } catch (_) {}
+    let dir = root;
+    for (;;) {
+      out.push(path.join(dir, 'node_modules', '@mermaid-js', 'mermaid-cli', 'package.json'));
+      const parent = path.dirname(dir);
+      if (root !== SKILL_ROOT || parent === dir) break;
+      dir = parent;
+    }
   }
   return out.filter((p, i) => out.indexOf(p) === i && fs.existsSync(p));
 }
@@ -180,7 +185,11 @@ async function renderMermaid(opts = {}) {
   if (!code && !file) throw new Error('renderMermaid: `code` or `file` is required');
   const mmdcEntry = resolveMmdc();
   if (!mmdcEntry) {
-    throw new Error(`mermaid-cli (mmdc) not found. Run \`npm install\` in ${SKILL_ROOT}.`);
+    throw new Error(
+      `mermaid-cli (mmdc) not found. Run \`node "${SETUP_SCRIPT}"\` to install it into ${runtimeDir()}. ` +
+      'Do not run `npm install` inside the skill directory: plugin hosts such as VS Code copy that ' +
+      'directory on every turn, and its dependencies make each turn hang.'
+    );
   }
 
   const outAbs = path.resolve(out);

@@ -92,9 +92,13 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install dependencies
+      # Install the way a plugin user does. Dependencies must land in the
+      # per-user data directory, never under the skill directory: plugin hosts
+      # such as VS Code copy the whole plugin directory on every turn, and a
+      # node_modules/ there made each turn hang on EMFILE.
+      - name: Install dependencies outside the skill directory
         working-directory: skills/diagram-renderer
-        run: npm install
+        run: node bin/setup.js
 
       # Octicons are MIT and fetched automatically, so CI can populate a real
       # mirror. The Microsoft packs require manual download and are never
@@ -102,6 +106,17 @@ jobs:
       - name: Populate icon mirror (Octicons only)
         working-directory: skills/diagram-renderer
         run: READ_AND_AGREE=1 bash scripts/fetch-icons.sh github
+
+      - name: Verify nothing was installed under the skill directory
+        working-directory: skills/diagram-renderer
+        run: |
+          for d in node_modules .local-assets package-lock.json; do
+            if [ -e "$d" ]; then
+              echo "::error::$d exists under the skill directory; setup.js and fetch-icons.sh must install outside it"
+              exit 1
+            fi
+          done
+          node bin/setup.js --check
 
       # Renders the committed samples for real: proves Chromium launches, the
       # mirror resolves live jsDelivr URLs, and that an unresolvable icon is a

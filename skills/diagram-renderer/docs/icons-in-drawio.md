@@ -18,8 +18,11 @@ This guide covers:
 ## TL;DR
 
 ```bash
+# 0. Install the renderer's dependencies (outside the plugin directory)
+node <skill>/bin/setup.js
+
 # 1. Populate the icon cache (one-time setup; mostly manual for MS icons)
-~/.copilot/skills/diagram-renderer/scripts/fetch-icons.sh
+<skill>/scripts/fetch-icons.sh
 
 # 2. In drawio: build your diagram, drag icons from the side library
 # 3. File → Save As → Editable SVG
@@ -27,7 +30,7 @@ This guide covers:
 #    - "Embed Images" OFF → SVG references icons by URL, this skill inlines them from your local mirror
 
 # 4. Render
-node ~/.copilot/skills/diagram-renderer/bin/render-drawio.js my-arch.drawio.svg --out my-arch.png
+node <skill>/bin/render-drawio.js my-arch.drawio.svg --out my-arch.png
 
 # Or wire into a Microsoft-brand pptx deck via slides.json:
 #   { "layout": "image", "variant": "image-full",
@@ -46,7 +49,7 @@ node ~/.copilot/skills/diagram-renderer/bin/render-drawio.js my-arch.drawio.svg 
 ### GitHub Octicons — auto-fetched
 - **License**: MIT (Primer / GitHub)
 - **Source**: https://github.com/primer/octicons (`@primer/octicons` on npm)
-- **Acquisition**: `scripts/fetch-icons.sh github` — runs `npm install --no-save @primer/octicons` and copies SVGs into `.local-assets/github/octicons/`. No interactive prompt.
+- **Acquisition**: `scripts/fetch-icons.sh github` — runs `npm install --no-save @primer/octicons` in a temporary directory and copies SVGs into `<mirror>/github/octicons/`. No interactive prompt.
 
 ### Microsoft Azure architecture icons — manual download
 - **License**: Microsoft proprietary; OK to use in architectural diagrams that
@@ -62,15 +65,15 @@ node ~/.copilot/skills/diagram-renderer/bin/render-drawio.js my-arch.drawio.svg 
   - `fetch-icons.sh azure` normalizes both:
     - category: `ai + machine learning` → `ai_machine_learning` (matches drawio's azure2 layout)
     - filename: `00028-icon-service-Batch-AI.svg` → `Batch_AI.svg`
-  - **Both the original AND normalized names are written** to `.local-assets/azure/`
+  - **Both the original AND normalized names are written** to `<mirror>/azure/`
     so drawio's URL refs (`/img/lib/azure2/<cat>/<Name>.svg`) and hand-coded refs
     (full MS filename) both resolve.
 - **Acquisition**:
   ```bash
   scripts/fetch-icons.sh azure
   # → prints the URL + terms, waits for your "I agree"
-  # → asks you to drop the ZIP into .local-assets/_inbox/
-  # → extracts SVGs into .local-assets/azure/ (drawio-conformant layout)
+  # → asks you to drop the ZIP into <mirror>/_inbox/
+  # → extracts SVGs into <mirror>/azure/ (drawio-conformant layout)
   ```
 - **Verified working** with drawio URLs like:
   - `https://www.draw.io/img/lib/azure2/identity/Users.svg`
@@ -95,7 +98,7 @@ node ~/.copilot/skills/diagram-renderer/bin/render-drawio.js my-arch.drawio.svg 
   - 8 SVGs: Agent365 / CopilotStudio at root + AIBuilder / Dataverse / PowerApps /
     PowerAutomate / PowerPages / PowerPlatform inside `Power Platform/`.
   - Filenames use `_scalable` suffix.
-  - `fetch-icons.sh power-platform` flattens into `.local-assets/power-platform/`
+  - `fetch-icons.sh power-platform` flattens into `<mirror>/power-platform/`
     and strips `_scalable` for the canonical name (also preserves the original).
 - **Drawio URL convention**: `https://aka.ms/power-platform-icons/<Name>.svg`
   (e.g. `.../PowerApps.svg`, `.../CopilotStudio.svg`). This is NOT a real network
@@ -109,7 +112,7 @@ node ~/.copilot/skills/diagram-renderer/bin/render-drawio.js my-arch.drawio.svg 
   - Two flavors: `Microsoft Entra BW icons SVG/` and `Microsoft Entra color icons SVG/`.
   - 16 SVGs total covering the Entra product family: ID, ID Governance, Internet
     Access, Private Access, Verified ID, Workload ID, plus the umbrella icon.
-  - `fetch-icons.sh entra` splits into `.local-assets/entra/bw/` and `.../color/`
+  - `fetch-icons.sh entra` splits into `<mirror>/entra/bw/` and `.../color/`
     with normalized names (e.g. `ID.svg`, `ID_Governance.svg`) + originals preserved.
 - **Drawio URL convention**:
   - `https://aka.ms/entra-icons/color/ID.svg`
@@ -136,7 +139,7 @@ external URLs in the exported SVG. The next two options apply there.
 1. In drawio: **Extras → Edit Library** (or **Open Library** if you have a
    `.drawioLibrary` file)
 2. Click the **+** button → **Add image from folder** or **From URL**
-3. Point at a folder of SVGs (e.g. `~/.copilot/skills/diagram-renderer/.local-assets/azure/`)
+3. Point at a folder of SVGs (e.g. `<mirror>/azure/`)
 4. drawio bakes those icons into a library you can dock to the side panel
 5. Drag icons onto your canvas
 
@@ -177,19 +180,35 @@ verified by the Phase 4 demo (P4-8).
 
 ```bash
 # Run interactive (asks per set)
-~/.copilot/skills/diagram-renderer/scripts/fetch-icons.sh
+<skill>/scripts/fetch-icons.sh
 
 # Or fetch specific sets
-~/.copilot/skills/diagram-renderer/scripts/fetch-icons.sh github azure entra
+<skill>/scripts/fetch-icons.sh github azure entra
 
 # Bypass interactive license prompt if you've already read LICENSE.md
-READ_AND_AGREE=1 ~/.copilot/skills/diagram-renderer/scripts/fetch-icons.sh
+READ_AND_AGREE=1 <skill>/scripts/fetch-icons.sh
 ```
 
-After running, your mirror lives at `~/.copilot/skills/diagram-renderer/.local-assets/`:
+The mirror lives in a per-user data directory, **not** under the skill or
+plugin directory — plugin hosts such as VS Code copy the plugin directory on
+every turn. Print it with `node <skill>/bin/setup.js --where icons`:
+
+| OS | Mirror (`<mirror>`) |
+|---|---|
+| Windows | `%LOCALAPPDATA%\diagram-renderer\icons` |
+| macOS | `~/Library/Application Support/diagram-renderer/icons` |
+| Linux | `${XDG_DATA_HOME:-~/.local/share}/diagram-renderer/icons` |
+
+`DIAGRAM_RENDERER_DATA=<dir>` moves it to `<dir>/icons`. A mirror an older
+version left in `<skill>/.local-assets/` is still read, and is moved to the new
+location the next time you run `fetch-icons.sh` or `bin/setup.js` (from every
+installed copy of the skill they find, not only the one they run from). If the
+new location already has a mirror, the old one is folded in without
+overwriting: identical files are dropped, missing ones added, and files that
+differ stay in `.local-assets/` and are listed.
 
 ```
-.local-assets/
+<mirror>/
 ├── github/
 │   ├── LICENSE         # MIT
 │   └── octicons/       # 700+ SVGs (alert-16.svg, repo-24.svg, ...)
@@ -205,8 +224,8 @@ After running, your mirror lives at `~/.copilot/skills/diagram-renderer/.local-a
 └── _inbox/             # scratch dir for unzipping; safe to clean
 ```
 
-> ⚠️ `.local-assets/` is **gitignored**. It's a user cache, not a committed
-> asset. Each user populates it themselves under the relevant terms.
+> ⚠️ The mirror is a user cache, not a committed asset. Each user populates it
+> themselves under the relevant terms; it is never redistributed.
 
 ---
 
@@ -228,7 +247,7 @@ self-contained.
 If the error lists e.g.
 `https://app.diagrams.net/img/lib/azure2/compute/App_Services.svg`,
 then either:
-- Ensure your `.local-assets/azure/compute/App_Services.svg` exists (rerun
+- Ensure your `<mirror>/azure/compute/App_Services.svg` exists (rerun
   `fetch-icons.sh azure` if needed and inspect the pack layout), or
 - Add an explicit alias in `assets/icons/aliases.json`:
   ```json
@@ -236,7 +255,7 @@ then either:
     "https://app.diagrams.net/img/lib/azure2/compute/App_Services.svg": "azure/SVG_Icons/Compute/10035-icon-service-App-Services.svg"
   }
   ```
-  (Path is relative to your `assetRoot`, i.e. `.local-assets/` by default.)
+  (Path is relative to your `assetRoot`, i.e. `<mirror>` by default.)
 
 #### (c) Dump a structured missing-externals report
 If you have many missing URLs, add `--report-missing missing.json` (CLI) or
@@ -244,7 +263,7 @@ If you have many missing URLs, add `--report-missing missing.json` (CLI) or
 JSON. Use that to bulk-author alias entries:
 
 ```bash
-node ~/.copilot/skills/diagram-renderer/bin/render-drawio.js my.drawio.svg \
+node <skill>/bin/render-drawio.js my.drawio.svg \
   --out my.png --report-missing missing.json
 cat missing.json | jq .  # inspect, then write aliases.json
 ```

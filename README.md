@@ -134,23 +134,55 @@ plugin system:
 
 ```bash
 git clone https://github.com/ChibaYuki347/diagram-renderer
-cd diagram-renderer/skills/diagram-renderer && npm install
+cd diagram-renderer/skills/diagram-renderer && node bin/setup.js
 ```
 
-First-run setup (one-time): populate the local icon mirror.
+First-run setup (one-time): install the renderer's dependencies and populate
+the local icon mirror.
 
 ```bash
-cd ~/.copilot/installed-plugins/diagram-renderer/diagram-renderer/skills/diagram-renderer
-npm install                       # mmdc + puppeteer
+cd ~/.copilot/installed-plugins/<marketplace>/diagram-renderer/skills/diagram-renderer
+node bin/setup.js                 # mmdc + puppeteer, outside the plugin directory
 READ_AND_AGREE=1 scripts/fetch-icons.sh github   # auto MIT
 READ_AND_AGREE=1 scripts/fetch-icons.sh azure    # manual ZIP — see prompt
 READ_AND_AGREE=1 scripts/fetch-icons.sh entra    # manual ZIP
 READ_AND_AGREE=1 scripts/fetch-icons.sh power-platform  # manual ZIP
 ```
 
+> ⚠️ **Do not run `npm install` inside the installed plugin.** Plugin hosts
+> such as VS Code (Agent / Copilot CLI sessions) copy the whole plugin directory
+> into `%APPDATA%\Code\agentPlugins` on every turn. mermaid-cli + puppeteer are
+> ~33,000 files; with them under the plugin, each turn runs out of file handles
+> (`EMFILE: too many open files`) and hangs for about ten minutes.
+>
+> `bin/setup.js` installs them into a per-user data directory instead, and
+> `fetch-icons.sh` puts the icon mirror there too:
+>
+> | OS | Data directory |
+> |---|---|
+> | Windows | `%LOCALAPPDATA%\diagram-renderer` |
+> | macOS | `~/Library/Application Support/diagram-renderer` |
+> | Linux | `${XDG_DATA_HOME:-~/.local/share}/diagram-renderer` |
+>
+> Set `DIAGRAM_RENDERER_DATA` to use another directory. `node bin/setup.js
+> --check` reports where every dependency and the icon mirror resolve from.
+>
+> **Upgrading from 0.6.x or earlier**, where the instructions said
+> `npm install`: update the plugin, then run `node bin/setup.js` once — from
+> the installed plugin or from the copy VS Code runs. It installs the
+> dependencies in the data directory, then, in every installed copy of this
+> skill it finds (including the plugin VS Code copies from, and each install
+> under `~/.copilot/installed-plugins`), moves `.local-assets/` out and deletes
+> `node_modules/`. When the data directory already has a mirror, the old one is
+> folded in without overwriting anything: identical files are dropped, missing
+> ones added, and any file that differs stays put and is listed for you to
+> settle. An install still on an older version is left untouched,
+> because its code only looks inside itself. Until setup runs, the old
+> locations keep working.
+
 The script prints the LICENSE summary and the official Microsoft download
-URL for each pack; you place the ZIP into `.local-assets/_inbox/` and rerun.
-The MS packs are never re-distributed by this repo.
+URL for each pack; you place the ZIP into the mirror's `_inbox/` folder and
+rerun. The MS packs are never re-distributed by this repo.
 
 Verify what landed:
 
@@ -278,7 +310,7 @@ manifest, so a consuming skill can discover the CLIs without hardcoding paths:
 
 Renderer code: **MIT** (see [LICENSE](LICENSE)).
 
-Icon assets fetched into `.local-assets/`:
+Icon assets fetched into the local icon mirror (`node bin/setup.js --where icons`):
 
 | Set | License | Source |
 |---|---|---|
@@ -287,7 +319,9 @@ Icon assets fetched into `.local-assets/`:
 | Entra | Microsoft brand guidelines | Entra architecture icons Oct-2023 ZIP (manual DL) |
 | Power Platform | Microsoft brand guidelines | Power Platform Icons Scalable ZIP (manual DL) |
 
-`.local-assets/` is `.gitignore`'d and never committed.
+The mirror lives in the per-user data directory, outside the repository and the
+plugin, and is never committed. A mirror left in `.local-assets/` by an older
+version is still read, and is `.gitignore`'d.
 
 See [`skills/diagram-renderer/docs/icons-in-drawio.md`](skills/diagram-renderer/docs/icons-in-drawio.md)
 for full author guide (drawio library import, naming conventions, troubleshooting).
@@ -298,15 +332,25 @@ for full author guide (drawio library import, naming conventions, troubleshootin
 
 ```bash
 cd skills/diagram-renderer
-npm install
+node bin/setup.js # or `npm install`: in a git checkout an in-place node_modules/ is fine
 npm test          # unit tests, no browser required
 ```
+
+A git checkout is not copied by any plugin host, so `npm install` in place
+still works there and `bin/setup.js` leaves it alone (pass `--prune` to remove
+it). Dependencies resolve from the data directory's runtime first when it
+matches this version's `package.json`, otherwise from the skill directory first.
 
 Tests cover the draw.io SVG inline pass (21 cases: DOM parsing, `href` vs
 `xlink:href`, path traversal, recursive basename fallback, base64 size budgets),
 the icon index (29 cases: variant grouping, scoring, URL round-tripping, CLI
-exit codes) and input-kind detection (15 cases: XML prologue handling, editable
-SVG vs raw draw.io XML vs unrenderable input) — 65 in total.
+exit codes), input-kind detection (15 cases: XML prologue handling, editable
+SVG vs raw draw.io XML vs unrenderable input) and where things are installed
+(38 cases: data-directory defaults per OS, legacy fallbacks, icon-mirror
+migration and non-overwriting reconciliation, dependency resolution order,
+stale and half-finished runtimes, mapping a VS Code copy back to its source
+plugin, cleanup of installed copies, `--where` argument handling, the default
+draw.io resolver) — 103 in total.
 
 ### End-to-end smoke test
 
@@ -338,7 +382,7 @@ every pull request:
 | Job | What it guards | Runtime |
 | --- | --- | --- |
 | `test` | Manifests/changelog (and any existing lock) agree; offline release policy, PR guard and retry tests pass; no `.local-assets/` or `.diagram-cache/` was committed; resolver rules and aliases parse; renderer unit tests pass. | ~1 min |
-| `e2e` | The renderer actually runs: dependencies install, the Octicon mirror populates, and the committed samples render to real PNGs with zero network access. Uploads the PNGs as an artifact. | a few minutes |
+| `e2e` | The renderer actually runs: dependencies install through `bin/setup.js` and nothing lands under the skill directory, the Octicon mirror populates, and the committed samples render to real PNGs with zero network access. Uploads the PNGs as an artifact. | a few minutes |
 
 To inspect a run:
 

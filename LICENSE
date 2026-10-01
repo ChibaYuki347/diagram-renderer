@@ -24,7 +24,7 @@ SOFTWARE.
 
 Note: This MIT license covers the renderer code, theme files, resolver rules,
 and documentation in this repository. **Icon assets** downloaded into the
-local `.local-assets/` cache via `scripts/fetch-icons.sh` are subject to their
+local icon mirror via `scripts/fetch-icons.sh` are subject to their
 respective upstream licenses:
 
   - Microsoft Azure / Entra / Power Platform icon packs — Microsoft brand
@@ -32,5 +32,7 @@ respective upstream licenses:
   - GitHub Octicons — MIT (Copyright (c) GitHub, Inc.)
 
 The fetch script displays the relevant license before downloading and requires
-explicit user consent (READ_AND_AGREE=1). The fetched assets are stored in
-`.local-assets/` which is `.gitignore`'d and never published from this repo.
+explicit user consent (READ_AND_AGREE=1). The fetched assets are stored in a
+per-user data directory outside this repository (a mirror left in
+`.local-assets/` by an older version is `.gitignore`'d) and are never published
+from this repo.
