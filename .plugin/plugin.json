@@ -21,9 +21,6 @@
     "offline"
   ],
   "skills": "./skills/",
-  "agents": [
-    "./agents"
-  ],
   "provides": {
     "diagram.render.mermaid": {
       "version": "1.0",
