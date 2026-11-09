@@ -16,6 +16,12 @@ removal or a change marked `breaking: true` stops the automatic release and
 sends it to the typed-major path in `RELEASING.md`. Sections up to 0.6.0 were
 written by hand under `## [Unreleased]`, and read as they were written.
 
+## [0.6.3] — 2026-11-10
+
+### Fixed
+
+- Claude Code can install the plugin: `plugin.json` no longer lists `agents` as a directory, which Claude Code rejects; both clients load `agents/` by default. (#12)
+
 ## [0.6.2] — 2026-10-01
 
 ### Fixed
