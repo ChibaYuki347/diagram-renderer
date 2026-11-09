@@ -12,6 +12,13 @@ tools:
   - bash
   - web_fetch
   - report_intent
+  - Edit
+  - Write
+  - Read
+  - Grep
+  - Glob
+  - Bash
+  - WebFetch
 ---
 
 # diagram-author
